@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const twilio = require("twilio");
 const { Sequelize } = require("sequelize");
 const otpGenerator = require("otp-generator");
-const User = require("../models/mysql/User");
+const User = require("../models/mysql/user");
 const router = express.Router();
 
 // Twilio setup (for phone number OTP)
@@ -15,6 +15,8 @@ const twilioClient = twilio(
 
 // Store OTP temporarily (for this demo, we use a simple object)
 let otpStore = {};
+// Store refresh tokens temporarily (for this demo, we use a simple object)
+let refreshTokenStore = {};
 
 // Function to set OTP in otpStore and include a timestamp
 const setOtp = (phone, otp) => {
@@ -186,11 +188,51 @@ router.post("/login", async (req, res) => {
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) return res.status(400).json({ message: "Invalid password" });
 
-  const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-    expiresIn: "1h",
+  // Generate Access Token
+  const accessToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
+    expiresIn: "1h", // Access token valid for 1 hour
   });
 
-  res.status(200).json({ token, user });
+  // Generate Refresh Token
+  const refreshToken = jwt.sign(
+    { userId: user.id },
+    process.env.JWT_REFRESH_SECRET,
+    {
+      expiresIn: "7d", // Refresh token valid for 7 days
+    }
+  );
+
+  // Store Refresh Token
+  refreshTokenStore[user.id] = refreshToken;
+
+  res.status(200).json({ accessToken, refreshToken, user });
+});
+
+// Refresh Token Route
+router.post("/refresh-token", async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken)
+    return res.status(401).json({ message: "Refresh Token required" });
+
+  // Verify refresh token
+  jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, (err, decoded) => {
+    if (err) return res.status(403).json({ message: "Invalid Refresh Token" });
+
+    const userId = decoded.userId;
+
+    // Check if refresh token exists in our store
+    if (refreshTokenStore[userId] !== refreshToken) {
+      return res.status(403).json({ message: "Refresh Token not recognized" });
+    }
+
+    // Generate new Access Token
+    const newAccessToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
+      expiresIn: "15m",
+    });
+
+    res.status(200).json({ accessToken: newAccessToken });
+  });
 });
 
 // Generate OTP for password reset

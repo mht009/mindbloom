@@ -6,6 +6,7 @@ const { initializeDatabase } = require("./config/mysql");
 const authRoutes = require("./routes/authRoutes");
 const app = express();
 const { sequelize } = require("./config/mysql");
+const User = require("./models/mysql/user");
 
 // Middleware setup
 app.use(cors());
@@ -28,6 +29,15 @@ sequelize
 
 // Routes
 app.use("/api/auth", authRoutes);
+
+const verifyToken = require("./middlewares/authMiddleware");
+
+app.get("/profile", verifyToken, async (req, res) => {
+  const user = await User.findByPk(req.user.userId);
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  res.status(200).json({ user });
+});
 
 // Server setup
 const PORT = process.env.PORT || 5000;
