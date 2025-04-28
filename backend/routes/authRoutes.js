@@ -7,56 +7,62 @@ const otpGenerator = require("otp-generator");
 const User = require("../models/mysql/user");
 const router = express.Router();
 
-// Twilio setup (for phone number OTP)
+// Twilio setup
 const twilioClient = twilio(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
 
-// Store OTP temporarily (for this demo, we use a simple object)
+// In a production environment, these should be stored in Redis or a database
 let otpStore = {};
-// Store refresh tokens temporarily (for this demo, we use a simple object)
 let refreshTokenStore = {};
 
-// Function to set OTP in otpStore and include a timestamp
+// OTP management functions
 const setOtp = (phone, otp) => {
-  // Store OTP in otpStore with the current timestamp
   otpStore[phone] = {
     otp,
-    timestamp: Date.now(), // Store current time when OTP is generated
+    timestamp: Date.now(),
+    attempts: 0, // Track verification attempts
   };
 };
 
-// Function to check OTP expiry
 const checkOtpExpiry = (phone) => {
-  // Check if OTP exists for the phone number
   const storedOtp = otpStore[phone];
 
   if (!storedOtp) {
     return { expired: true, message: "OTP not found" };
   }
 
-  // Check if the OTP has expired (e.g., 5 minutes expiry)
-  const otpExpiryTime = 5 * 60 * 1000; // 5 minutes in milliseconds
+  const otpExpiryTime = 5 * 60 * 1000; // 5 minutes
   const timeDifference = Date.now() - storedOtp.timestamp;
 
   if (timeDifference > otpExpiryTime) {
+    delete otpStore[phone]; // Clean up expired OTPs
     return { expired: true, message: "OTP expired" };
   }
 
   return { expired: false };
 };
 
-// Function to validate OTP
 const validateOtp = (phone, inputOtp) => {
-  // First check if OTP has expired
   const expiryCheck = checkOtpExpiry(phone);
   if (expiryCheck.expired) {
     return { valid: false, message: expiryCheck.message };
   }
 
-  // Then check if OTP matches
-  if (otpStore[phone]?.otp !== inputOtp) {
+  // Increment attempt counter
+  otpStore[phone].attempts += 1;
+
+  // Lock after 5 failed attempts
+  if (otpStore[phone].attempts > 5) {
+    delete otpStore[phone]; // Remove OTP after too many attempts
+    return {
+      valid: false,
+      message: "Too many failed attempts. Please request a new OTP.",
+    };
+  }
+
+  if (otpStore[phone].otp !== inputOtp) {
     return { valid: false, message: "Invalid OTP" };
   }
 
@@ -80,216 +86,371 @@ const sendOtpViaTwilio = async (phone, otp, isResend = false) => {
   }
 };
 
-// Generate OTP and send to phone
-router.post("/signup", async (req, res) => {
-  const { name, email, phone, password } = req.body;
+// Input validation middleware
+const validateSignupInput = (req, res, next) => {
+  const { name, phone, password } = req.body;
 
-  // Check if user already exists via email or phone
-  const existingUser = await User.findOne({
-    where: {
-      [Sequelize.Op.or]: [
-        ...(email ? [{ email }] : []),
-        ...(phone ? [{ phone }] : []),
-      ],
-    },
-  });
-
-  if (existingUser) {
-    return res.status(400).json({ message: "User already exists" });
+  if (!name || !phone || !password) {
+    return res
+      .status(400)
+      .json({ message: "Name, phone and password are required" });
   }
 
-  // Generate OTP
-  const otp = otpGenerator.generate(6, {
-    upperCase: false,
-    specialChars: false,
-  });
+  if (password.length < 6) {
+    return res
+      .status(400)
+      .json({ message: "Password must be at least 6 characters" });
+  }
 
-  // Store OTP temporarily
-  setOtp(phone, otp);
+  next();
+};
 
-  // Send OTP via phone number
-  const result = await sendOtpViaTwilio(phone, otp);
+// Generate OTP and send to phone
+router.post("/signup", validateSignupInput, async (req, res) => {
+  try {
+    const { name, email, phone, password } = req.body;
 
-  if (result.success) {
-    res.status(200).json({ message: "OTP sent to phone" });
-  } else {
-    res.status(500).json({ message: "Failed to send OTP" });
+    // Check if user already exists
+    const existingUser = await User.findOne({
+      where: {
+        [Sequelize.Op.or]: [
+          ...(email ? [{ email }] : []),
+          ...(phone ? [{ phone }] : []),
+        ],
+      },
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    // Generate OTP
+    const otp = otpGenerator.generate(6, {
+      upperCase: false,
+      specialChars: false,
+      alphabets: false,
+      digits: true,
+    });
+
+    // Store OTP temporarily
+    setOtp(phone, otp);
+
+    // Send OTP via phone number
+    const result = await sendOtpViaTwilio(phone, otp);
+
+    if (result.success) {
+      res.status(200).json({ message: "OTP sent to phone" });
+    } else {
+      res.status(500).json({ message: "Failed to send OTP" });
+    }
+  } catch (error) {
+    console.error("Signup error:", error);
+    res.status(500).json({ message: "Server error during signup" });
   }
 });
 
 // Resend OTP endpoint
 router.post("/resend-otp", async (req, res) => {
-  const { phone } = req.body;
+  try {
+    const { phone } = req.body;
 
-  if (!phone) {
-    return res.status(400).json({ message: "Phone number is required" });
-  }
+    if (!phone) {
+      return res.status(400).json({ message: "Phone number is required" });
+    }
 
-  // Generate new OTP
-  const otp = otpGenerator.generate(6, {
-    upperCase: false,
-    specialChars: false,
-  });
+    // Rate limiting (basic implementation)
+    // In production, use Redis with TTL or a proper rate limiter middleware
+    const lastOtp = otpStore[phone];
+    if (lastOtp && Date.now() - lastOtp.timestamp < 60000) {
+      // 1 minute
+      return res.status(429).json({
+        message: "Please wait before requesting another OTP",
+        retryAfter: Math.ceil(
+          (60000 - (Date.now() - lastOtp.timestamp)) / 1000
+        ),
+      });
+    }
 
-  // Store new OTP with updated timestamp
-  setOtp(phone, otp);
+    // Generate new OTP
+    const otp = otpGenerator.generate(6, {
+      upperCase: false,
+      specialChars: false,
+      alphabets: false,
+      digits: true,
+    });
 
-  // Send OTP via Twilio
-  const result = await sendOtpViaTwilio(phone, otp, true);
+    // Store new OTP with updated timestamp
+    setOtp(phone, otp);
 
-  if (result.success) {
-    res.status(200).json({ message: "OTP resent successfully" });
-  } else {
-    res.status(500).json({ message: "Failed to resend OTP" });
+    // Send OTP via Twilio
+    const result = await sendOtpViaTwilio(phone, otp, true);
+
+    if (result.success) {
+      res.status(200).json({ message: "OTP resent successfully" });
+    } else {
+      res.status(500).json({ message: "Failed to resend OTP" });
+    }
+  } catch (error) {
+    console.error("Resend OTP error:", error);
+    res.status(500).json({ message: "Server error during OTP resend" });
   }
 });
 
 // Verify OTP and complete registration
 router.post("/verify-otp", async (req, res) => {
-  const { otp, phone, name, email, password } = req.body;
+  try {
+    const { otp, phone, name, email, password } = req.body;
 
-  // Validate OTP
-  const otpValidation = validateOtp(phone, otp);
-  if (!otpValidation.valid) {
-    return res.status(400).json({ message: otpValidation.message });
+    if (!otp || !phone || !name || !password) {
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    // Validate OTP
+    const otpValidation = validateOtp(phone, otp);
+    if (!otpValidation.valid) {
+      return res.status(400).json({ message: otpValidation.message });
+    }
+
+    // OTP is correct, hash the password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create new user
+    const user = await User.create({
+      name,
+      email,
+      phone,
+      password: hashedPassword,
+    });
+
+    // Remove OTP from store after successful registration
+    delete otpStore[phone];
+
+    // Generate JWT token
+    const accessToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    // Generate refresh token
+    const refreshToken = jwt.sign(
+      { userId: user.id },
+      process.env.JWT_REFRESH_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // Store refresh token
+    refreshTokenStore[user.id] = refreshToken;
+
+    res.status(201).json({
+      message: "User registered successfully",
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error("OTP verification error:", error);
+    res.status(500).json({ message: "Server error during OTP verification" });
   }
-
-  // OTP is correct, so we can now hash the password
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  // Create new user with email (optional) and phone
-  const user = await User.create({
-    name,
-    email, // Email is stored but not used for OTP
-    phone,
-    password: hashedPassword,
-  });
-
-  // Remove OTP from store after successful registration
-  delete otpStore[phone];
-
-  // Generate JWT token
-  const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-    expiresIn: "1h",
-  });
-
-  res.status(201).json({ token, user });
 });
 
 // Login
 router.post("/login", async (req, res) => {
-  const { phone, password } = req.body;
+  try {
+    const { phone, password } = req.body;
 
-  // Find user
-  const user = await User.findOne({ where: { phone } });
-  if (!user) return res.status(404).json({ message: "User not found" });
-
-  // Check password
-  const isMatch = await bcrypt.compare(password, user.password);
-  if (!isMatch) return res.status(400).json({ message: "Invalid password" });
-
-  // Generate Access Token
-  const accessToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-    expiresIn: "1h", // Access token valid for 1 hour
-  });
-
-  // Generate Refresh Token
-  const refreshToken = jwt.sign(
-    { userId: user.id },
-    process.env.JWT_REFRESH_SECRET,
-    {
-      expiresIn: "7d", // Refresh token valid for 7 days
+    if (!phone || !password) {
+      return res
+        .status(400)
+        .json({ message: "Phone and password are required" });
     }
-  );
 
-  // Store Refresh Token
-  refreshTokenStore[user.id] = refreshToken;
+    // Find user
+    const user = await User.findOne({ where: { phone } });
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-  res.status(200).json({ accessToken, refreshToken, user });
+    // Check password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "Invalid password" });
+
+    // Generate Access Token
+    const accessToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    // Generate Refresh Token
+    const refreshToken = jwt.sign(
+      { userId: user.id },
+      process.env.JWT_REFRESH_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    // Store Refresh Token
+    refreshTokenStore[user.id] = refreshToken;
+
+    res.status(200).json({
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        phone: user.phone,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error("Login error:", error);
+    res.status(500).json({ message: "Server error during login" });
+  }
 });
 
 // Refresh Token Route
 router.post("/refresh-token", async (req, res) => {
-  const { refreshToken } = req.body;
+  try {
+    const { refreshToken } = req.body;
 
-  if (!refreshToken)
-    return res.status(401).json({ message: "Refresh Token required" });
-
-  // Verify refresh token
-  jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, (err, decoded) => {
-    if (err) return res.status(403).json({ message: "Invalid Refresh Token" });
-
-    const userId = decoded.userId;
-
-    // Check if refresh token exists in our store
-    if (refreshTokenStore[userId] !== refreshToken) {
-      return res.status(403).json({ message: "Refresh Token not recognized" });
+    if (!refreshToken) {
+      return res.status(401).json({ message: "Refresh Token required" });
     }
 
-    // Generate new Access Token
-    const newAccessToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
-    });
+    // Verify refresh token
+    jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET, (err, decoded) => {
+      if (err)
+        return res.status(403).json({ message: "Invalid Refresh Token" });
 
-    res.status(200).json({ accessToken: newAccessToken });
-  });
+      const userId = decoded.userId;
+
+      // Check if refresh token exists in our store
+      if (refreshTokenStore[userId] !== refreshToken) {
+        return res
+          .status(403)
+          .json({ message: "Refresh Token not recognized" });
+      }
+
+      // Generate new Access Token
+      const newAccessToken = jwt.sign({ userId }, process.env.JWT_SECRET, {
+        expiresIn: "1h",
+      });
+
+      res.status(200).json({ accessToken: newAccessToken });
+    });
+  } catch (error) {
+    console.error("Token refresh error:", error);
+    res.status(500).json({ message: "Server error during token refresh" });
+  }
+});
+
+// Logout route to invalidate refresh token
+router.post("/logout", async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (userId && refreshTokenStore[userId]) {
+      delete refreshTokenStore[userId];
+    }
+
+    res.status(200).json({ message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout error:", error);
+    res.status(500).json({ message: "Server error during logout" });
+  }
 });
 
 // Generate OTP for password reset
 router.post("/reset-password/request", async (req, res) => {
-  const { phone } = req.body;
+  try {
+    const { phone } = req.body;
 
-  // Check if the user exists
-  const user = await User.findOne({ where: { phone } });
-  if (!user) {
-    return res.status(404).json({ message: "User not found" });
-  }
+    if (!phone) {
+      return res.status(400).json({ message: "Phone number is required" });
+    }
 
-  // Generate OTP
-  const otp = otpGenerator.generate(6, {
-    upperCase: false,
-    specialChars: false,
-  });
+    // Check if the user exists
+    const user = await User.findOne({ where: { phone } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
-  // Store OTP temporarily
-  setOtp(phone, otp);
+    // Generate OTP
+    const otp = otpGenerator.generate(6, {
+      upperCase: false,
+      specialChars: false,
+      alphabets: false,
+      digits: true,
+    });
 
-  // Send OTP via phone
-  const result = await sendOtpViaTwilio(phone, otp);
+    // Store OTP temporarily
+    setOtp(phone, otp);
 
-  if (result.success) {
-    res.status(200).json({ message: "OTP sent to phone" });
-  } else {
-    res.status(500).json({ message: "Failed to send OTP" });
+    // Send OTP via phone
+    const result = await sendOtpViaTwilio(phone, otp);
+
+    if (result.success) {
+      res.status(200).json({ message: "OTP sent to phone" });
+    } else {
+      res.status(500).json({ message: "Failed to send OTP" });
+    }
+  } catch (error) {
+    console.error("Password reset request error:", error);
+    res
+      .status(500)
+      .json({ message: "Server error during password reset request" });
   }
 });
 
 // Verify OTP and reset password
 router.post("/reset-password/verify", async (req, res) => {
-  const { otp, phone, newPassword } = req.body;
+  try {
+    const { otp, phone, newPassword } = req.body;
 
-  // Validate OTP
-  const otpValidation = validateOtp(phone, otp);
-  if (!otpValidation.valid) {
-    return res.status(400).json({ message: otpValidation.message });
+    if (!otp || !phone || !newPassword) {
+      return res
+        .status(400)
+        .json({ message: "OTP, phone and new password are required" });
+    }
+
+    if (newPassword.length < 6) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters" });
+    }
+
+    // Validate OTP
+    const otpValidation = validateOtp(phone, otp);
+    if (!otpValidation.valid) {
+      return res.status(400).json({ message: otpValidation.message });
+    }
+
+    // OTP is correct, hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update the user's password in the database
+    const user = await User.findOne({ where: { phone } });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.password = hashedPassword;
+    await user.save();
+
+    // Remove OTP from store after successful reset
+    delete otpStore[phone];
+
+    // Invalidate all refresh tokens for this user
+    if (refreshTokenStore[user.id]) {
+      delete refreshTokenStore[user.id];
+    }
+
+    res.status(200).json({ message: "Password reset successfully" });
+  } catch (error) {
+    console.error("Password reset verification error:", error);
+    res
+      .status(500)
+      .json({ message: "Server error during password reset verification" });
   }
-
-  // OTP is correct, so hash the new password
-  const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-  // Update the user's password in the database
-  const user = await User.findOne({ where: { phone } });
-  if (!user) {
-    return res.status(404).json({ message: "User not found" });
-  }
-
-  user.password = hashedPassword;
-  await user.save();
-
-  // Remove OTP from store after successful reset
-  delete otpStore[phone];
-
-  res.status(200).json({ message: "Password reset successfully" });
 });
 
 module.exports = router;

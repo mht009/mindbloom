@@ -1,15 +1,15 @@
 const express = require("express");
 const esClient = require("../config/esClient");
-const redisClient = require("../config/redisClient"); // Import your Redis client
-const verifyToken = require("../middlewares/verifyToken"); // Import your verifyToken middleware
+const redisClient = require("../config/redisClient");
+const verifyToken = require("../middlewares/verifyToken");
 const { v4: uuidv4 } = require("uuid");
 
 const router = express.Router();
 
-// Save a story to Elasticsearch (with token verification)
-router.put("/add", verifyToken, async (req, res) => {
+// Save a story
+router.post("/stories", verifyToken, async (req, res) => {
   const { title, body, hashtags } = req.body;
-  const userId = req.user.userId; // This comes from the decoded token
+  const userId = req.user.userId;
 
   if (!title || !body || !hashtags) {
     return res.status(400).json({ message: "All fields are required" });
@@ -17,15 +17,15 @@ router.put("/add", verifyToken, async (req, res) => {
 
   const story = {
     id: uuidv4(),
-    userId: userId,
+    userId,
     title,
     body,
     hashtags,
-    createdAt: new Date(),
+    createdAt: new Date().toISOString(),
   };
 
   try {
-    const response = await esClient.index({
+    await esClient.index({
       index: "stories",
       id: story.id,
       body: story,
@@ -42,71 +42,85 @@ router.put("/add", verifyToken, async (req, res) => {
 });
 
 // Edit a story
-router.put("/edit/:id", verifyToken, async (req, res) => {
+router.put("/stories/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
   const { title, body, hashtags } = req.body;
   const { userId } = req.user;
 
-  // Check if the user is the author of the story
-  const story = await esClient.get({ index: "stories", id });
-  if (!story || story._source.userId !== userId) {
-    return res.status(403).json({ message: "You cannot edit this story" });
-  }
+  try {
+    // Check if the user is the author of the story
+    const storyResponse = await esClient.get({ index: "stories", id });
+    const story = storyResponse.body || storyResponse;
 
-  // Update the story in Elasticsearch
-  await esClient.update({
-    index: "stories",
-    id,
-    body: {
-      doc: {
-        title,
-        body,
-        hashtags,
-        updatedAt: new Date().toISOString(),
+    if (!story || story._source.userId !== userId) {
+      return res.status(403).json({ message: "You cannot edit this story" });
+    }
+
+    // Update the story in Elasticsearch
+    await esClient.update({
+      index: "stories",
+      id,
+      body: {
+        doc: {
+          title,
+          body,
+          hashtags,
+          updatedAt: new Date().toISOString(),
+        },
       },
-    },
-  });
+    });
 
-  res.status(200).json({ message: "Story updated successfully" });
+    res.status(200).json({ message: "Story updated successfully" });
+  } catch (error) {
+    console.error("Error updating story:", error);
+    res.status(500).json({ message: "Failed to update story" });
+  }
 });
 
 // Delete a story
-router.delete("/delete/:id", verifyToken, async (req, res) => {
+router.delete("/stories/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
   const { userId } = req.user;
 
-  // Check if the user is the author of the story
-  const story = await esClient.get({ index: "stories", id });
-  if (!story || story._source.userId !== userId) {
-    return res.status(403).json({ message: "You cannot delete this story" });
+  try {
+    // Check if the user is the author of the story
+    const storyResponse = await esClient.get({ index: "stories", id });
+    const story = storyResponse.body || storyResponse;
+
+    if (!story || story._source.userId !== userId) {
+      return res.status(403).json({ message: "You cannot delete this story" });
+    }
+
+    // Delete the story from Elasticsearch
+    await esClient.delete({
+      index: "stories",
+      id,
+    });
+
+    res.status(200).json({ message: "Story deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting story:", error);
+    res.status(500).json({ message: "Failed to delete story" });
   }
-
-  // Delete the story from Elasticsearch
-  await esClient.delete({
-    index: "stories",
-    id,
-  });
-
-  res.status(200).json({ message: "Story deleted successfully" });
 });
 
-router.get("/mystories", verifyToken, async (req, res) => {
-  const { userId } = req.user; // Extracted from the token
+// Get user's own stories
+router.get("/stories/mine", verifyToken, async (req, res) => {
+  const { userId } = req.user;
 
   try {
     const response = await esClient.search({
       index: "stories",
       body: {
         query: {
-          term: { userId: userId }, // Fetch only where userId matches
+          term: { userId },
         },
-        sort: [
-          { createdAt: { order: "desc" } }, // Optional: sort by newest first
-        ],
+        sort: [{ createdAt: { order: "desc" } }],
       },
     });
 
-    const myStories = response.hits.hits.map((hit) => ({
+    const responseData = response.body || response;
+    const myStories = responseData.hits.hits.map((hit) => ({
       id: hit._id,
       ...hit._source,
     }));
@@ -119,39 +133,32 @@ router.get("/mystories", verifyToken, async (req, res) => {
 });
 
 // Get paginated stories for infinite scroll
-router.get("/all", verifyToken, async (req, res) => {
+router.get("/stories", verifyToken, async (req, res) => {
   try {
-    // Get the limit and the last fetched timestamp
     const limit = parseInt(req.query.limit) || 5;
-    const lastTimestamp = req.query.lastTimestamp; // Use timestamp instead of ID
+    const lastTimestamp = req.query.lastTimestamp;
 
-    // Base query
     const searchQuery = {
       size: limit,
-      sort: [
-        { createdAt: { order: "desc" } }, // Sort by creation date
-      ],
+      sort: [{ createdAt: { order: "desc" } }],
     };
 
-    // Add search_after if we have a last timestamp
     if (lastTimestamp) {
       searchQuery.search_after = [lastTimestamp];
     }
 
-    // Fetch stories from Elasticsearch
     const response = await esClient.search({
       index: "stories",
       body: searchQuery,
     });
 
-    // Map the stories and include the sort value for next pagination
-    const stories = response.hits.hits.map((hit) => ({
+    const responseData = response.body || response;
+    const stories = responseData.hits.hits.map((hit) => ({
       id: hit._id,
       ...hit._source,
-      sort: hit.sort?.[0], // Include the sort value for next pagination
+      sort: hit.sort?.[0],
     }));
 
-    // Get the last story's timestamp for next pagination
     const lastStoryTimestamp =
       stories.length > 0 ? stories[stories.length - 1].createdAt : null;
 
@@ -167,74 +174,74 @@ router.get("/all", verifyToken, async (req, res) => {
 });
 
 // Like a story
-router.post("/:id/like", verifyToken, async (req, res) => {
+router.post("/stories/:id/like", verifyToken, async (req, res) => {
   const { id } = req.params;
   const { userId } = req.user;
 
   try {
-    // Convert userId to string before adding to Redis set
     await redisClient.sAdd(`story:${id}:likes`, String(userId));
     res.status(200).json({ message: "Story liked successfully" });
-  } catch (err) {
-    console.error("Error liking story:", err);
+  } catch (error) {
+    console.error("Error liking story:", error);
     res.status(500).json({ message: "Error liking story" });
   }
 });
 
 // Unlike a story
-router.delete("/:id/like", verifyToken, async (req, res) => {
+router.delete("/stories/:id/like", verifyToken, async (req, res) => {
   const { id } = req.params;
   const { userId } = req.user;
 
   try {
-    // Convert userId to string before removing from Redis set
     await redisClient.sRem(`story:${id}:likes`, String(userId));
     res.status(200).json({ message: "Story unliked successfully" });
-  } catch (err) {
-    console.error("Error unliking story:", err);
+  } catch (error) {
+    console.error("Error unliking story:", error);
     res.status(500).json({ message: "Error unliking story" });
   }
 });
 
 // Get likes count
-router.get("/:id/likes", verifyToken, async (req, res) => {
+router.get("/stories/:id/likes", verifyToken, async (req, res) => {
   const { id } = req.params;
 
   try {
-    // Use sCard instead of scard
     const count = await redisClient.sCard(`story:${id}:likes`);
     res.status(200).json({ likesCount: count });
-  } catch (err) {
-    console.error("Error getting likes count:", err);
+  } catch (error) {
+    console.error("Error getting likes count:", error);
     res.status(500).json({ message: "Error getting likes count" });
   }
 });
 
 // Post a comment on a story
 router.post("/stories/:id/comments", verifyToken, async (req, res) => {
-  const { id } = req.params; // Story ID
-  const { userId } = req.user; // From JWT
-  const { body } = req.body; // Comment body
+  const { id } = req.params;
+  const { userId } = req.user;
+  const { body } = req.body;
 
-  // Create the comment object
+  if (!body) {
+    return res.status(400).json({ message: "Comment body is required" });
+  }
+
   const comment = {
     storyId: id,
     userId,
     body,
-    createdAt: new Date(),
+    createdAt: new Date().toISOString(),
   };
 
   try {
-    // Store the comment in Elasticsearch
     const response = await esClient.index({
       index: "comments",
       body: comment,
     });
 
+    const responseData = response.body || response;
     res.status(201).json({
       message: "Comment posted successfully",
       comment: {
-        id: response.body._id,
+        id: responseData._id,
         ...comment,
       },
     });
@@ -246,43 +253,42 @@ router.post("/stories/:id/comments", verifyToken, async (req, res) => {
 
 // Get comments for a story (paginated)
 router.get("/stories/:id/comments", async (req, res) => {
-  const { id } = req.params; // Story ID
-  const limit = parseInt(req.query.limit) || 10; // Default to 10 comments
-  const lastFetchedId = req.query.lastFetchedId; // Last comment ID (optional)
+  const { id } = req.params;
+  const limit = parseInt(req.query.limit) || 10;
+  const lastFetchedId = req.query.lastFetchedId;
 
-  // Elasticsearch query for paginated comments
   let query = {
     size: limit,
     query: {
-      term: { storyId: id }, // Fetch comments for the specific story
+      term: { storyId: id },
     },
-    sort: [{ createdAt: { order: "asc" } }], // Sort comments by creation date (ascending)
+    sort: [{ createdAt: { order: "asc" } }],
   };
 
   if (lastFetchedId) {
     query.query = {
       bool: {
         must: [{ term: { storyId: id } }],
-        filter: { range: { createdAt: { gt: lastFetchedId } } }, // Comments after the last fetched ID
+        filter: { range: { createdAt: { gt: lastFetchedId } } },
       },
     };
   }
 
   try {
-    // Fetch comments from Elasticsearch
     const response = await esClient.search({
       index: "comments",
       body: query,
     });
 
-    const comments = response.body.hits.hits.map((hit) => ({
+    const responseData = response.body || response;
+    const comments = responseData.hits.hits.map((hit) => ({
       id: hit._id,
       ...hit._source,
     }));
 
     res.status(200).json({
       comments,
-      hasMore: comments.length === limit, // Check if more comments are available
+      hasMore: comments.length === limit,
     });
   } catch (error) {
     console.error("Error fetching comments:", error);
@@ -292,28 +298,33 @@ router.get("/stories/:id/comments", async (req, res) => {
 
 // Edit a comment
 router.put("/comments/:id", verifyToken, async (req, res) => {
-  const { id } = req.params; // Comment ID
-  const { userId } = req.user; // From JWT
-  const { body } = req.body; // New comment body
+  const { id } = req.params;
+  const { userId } = req.user;
+  const { body } = req.body;
+
+  if (!body) {
+    return res.status(400).json({ message: "Comment body is required" });
+  }
 
   try {
-    // Fetch the comment from Elasticsearch
-    const existingComment = await esClient.get({
+    const existingCommentResponse = await esClient.get({
       index: "comments",
       id,
     });
 
-    if (existingComment.body._source.userId !== userId) {
+    const existingComment =
+      existingCommentResponse.body || existingCommentResponse;
+
+    if (existingComment._source.userId !== userId) {
       return res
         .status(403)
         .json({ message: "You can only edit your own comments" });
     }
 
-    // Update the comment
     const updatedComment = {
-      ...existingComment.body._source,
+      ...existingComment._source,
       body,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     };
 
     await esClient.update({
@@ -322,9 +333,13 @@ router.put("/comments/:id", verifyToken, async (req, res) => {
       body: { doc: updatedComment },
     });
 
-    res
-      .status(200)
-      .json({ message: "Comment updated successfully", updatedComment });
+    res.status(200).json({
+      message: "Comment updated successfully",
+      comment: {
+        id,
+        ...updatedComment,
+      },
+    });
   } catch (error) {
     console.error("Error editing comment:", error);
     res.status(500).json({ message: "Failed to edit comment" });
@@ -333,23 +348,24 @@ router.put("/comments/:id", verifyToken, async (req, res) => {
 
 // Delete a comment
 router.delete("/comments/:id", verifyToken, async (req, res) => {
-  const { id } = req.params; // Comment ID
-  const { userId } = req.user; // From JWT
+  const { id } = req.params;
+  const { userId } = req.user;
 
   try {
-    // Fetch the comment from Elasticsearch
-    const existingComment = await esClient.get({
+    const existingCommentResponse = await esClient.get({
       index: "comments",
       id,
     });
 
-    if (existingComment.body._source.userId !== userId) {
+    const existingComment =
+      existingCommentResponse.body || existingCommentResponse;
+
+    if (existingComment._source.userId !== userId) {
       return res
         .status(403)
         .json({ message: "You can only delete your own comments" });
     }
 
-    // Delete the comment
     await esClient.delete({
       index: "comments",
       id,
@@ -361,5 +377,60 @@ router.delete("/comments/:id", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Failed to delete comment" });
   }
 });
+
+// Get stories by hashtag (paginated)
+router.get('/stories/hashtag/:hashtag', async (req, res) => {
+  const { hashtag } = req.params;
+  const limit = parseInt(req.query.limit) || 10;
+  const lastFetchedCreatedAt = req.query.lastFetchedCreatedAt; // Optional for pagination
+
+  let query = {
+    size: limit,
+    query: {
+      term: {
+        hashtags: hashtag, // Search stories with this exact hashtag
+      },
+    },
+    sort: [
+      { createdAt: { order: 'desc' } }, // Newest stories first
+    ],
+  };
+
+  if (lastFetchedCreatedAt) {
+    query.query = {
+      bool: {
+        must: [
+          { term: { hashtags: hashtag } }
+        ],
+        filter: {
+          range: {
+            createdAt: { lt: lastFetchedCreatedAt } // Fetch stories created before the last fetched one
+          }
+        }
+      }
+    };
+  }
+
+  try {
+    const response = await esClient.search({
+      index: 'stories',
+      body: query,
+    });
+
+    const stories = response.body.hits.hits.map((hit) => ({
+      id: hit._id,
+      ...hit._source,
+    }));
+
+    res.status(200).json({
+      stories,
+      hasMore: stories.length === limit, // If we got full 'limit', then maybe there are more
+    });
+  } catch (error) {
+    console.error('Error fetching stories by hashtag:', error);
+    res.status(500).json({ message: 'Failed to fetch stories by hashtag' });
+  }
+});
+
 
 module.exports = router;
