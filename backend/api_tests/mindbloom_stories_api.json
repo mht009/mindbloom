@@ -1,0 +1,370 @@
+{
+  "info": {
+    "name": "Mindbloom Stories APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create Story",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"title\":\"My First Story\",\"body\":\"This is a test story with #test hashtag and @testuser mention\",\"hashtags\":[\"test\",\"sample\"]}"
+        },
+        "url": {
+          "raw": "http://localhost:5000/api/stories",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories"]
+        }
+      }
+    },
+    {
+      "name": "Edit Story",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"title\":\"Updated Story\",\"body\":\"Updated content with #newhashtag\",\"hashtags\":[\"newhashtag\"]}"
+        },
+        "url": {
+          "raw": "http://localhost:5000/api/stories/<story_id>",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "<story_id>"]
+        }
+      }
+    },
+    {
+      "name": "Delete Story",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/<story_id>",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "<story_id>"]
+        }
+      }
+    },
+    {
+      "name": "Get User's Stories",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/mine",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "mine"]
+        }
+      }
+    },
+    {
+      "name": "Get Paginated Stories",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories?limit=5",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Like Story",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/<story_id>/like",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "<story_id>", "like"]
+        }
+      }
+    },
+    {
+      "name": "Unlike Story",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/<story_id>/like",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "<story_id>", "like"]
+        }
+      }
+    },
+    {
+      "name": "Get Likes Count",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/<story_id>/likes",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "<story_id>", "likes"]
+        }
+      }
+    },
+    {
+      "name": "Post Comment",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"body\":\"Great story! @testuser\"}"
+        },
+        "url": {
+          "raw": "http://localhost:5000/api/stories/<story_id>/comments",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "<story_id>", "comments"]
+        }
+      }
+    },
+    {
+      "name": "Edit Comment",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"body\":\"Updated comment! @newuser\"}"
+        },
+        "url": {
+          "raw": "http://localhost:5000/api/stories/comments/<comment_id>",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "comments", "<comment_id>"]
+        }
+      }
+    },
+    {
+      "name": "Get Comments",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/<story_id>/comments?limit=10",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "<story_id>", "comments"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Delete Comment",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/comments/<comment_id>",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "comments", "<comment_id>"]
+        }
+      }
+    },
+    {
+      "name": "Get Stories by Hashtag",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/hashtag/test?limit=10",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "hashtag", "test"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Mentions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/mentions?limit=10&unreadOnly=true",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "mentions"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "unreadOnly",
+              "value": "true"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Mark Mentions as Read",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"mentionIds\":[\"<mention_id1>\",\"<mention_id2>\"]}"
+        },
+        "url": {
+          "raw": "http://localhost:5000/api/stories/mentions/read",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "mentions", "read"]
+        }
+      }
+    },
+    {
+      "name": "Get Unread Mentions Count",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer <your_jwt_token>"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:5000/api/stories/mentions/count",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "5000",
+          "path": ["stories", "mentions", "count"]
+        }
+      }
+    }
+  ]
+}

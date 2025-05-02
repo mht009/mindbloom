@@ -1,7 +1,6 @@
 require("dotenv").config(); // Load environment variables first
 const express = require("express");
 const cors = require("cors");
-const bodyParser = require("body-parser");
 const helmet = require("helmet"); // Add security headers
 const { sequelize, initializeDatabase } = require("./config/mysql");
 const {
@@ -13,17 +12,21 @@ const {
 const { createUserIndex } = require("./models/elasticsearch/userModel");
 const authRoutes = require("./routes/authRoutes");
 const storyRoutes = require("./routes/storyRoutes");
+const userRoutes = require("./routes/userRoutes");
 
 const app = express();
 
 // Middleware setup
 app.use(cors());
 app.use(helmet());
-app.use(bodyParser.json());
+
+app.use(express.json());  // For parsing application/json
+app.use(express.urlencoded({ extended: true }));  // For parsing 
 
 // Routes
 app.use("/api/auth", authRoutes);
-app.use("/api/stories", storyRoutes); // Changed from /api/user to /api/stories for clarity
+app.use("/api/stories", storyRoutes);
+app.use("/api/users", userRoutes);
 
 // 404 handler
 app.use((req, res) => {

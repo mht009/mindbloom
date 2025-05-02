@@ -73,7 +73,7 @@ async function createMentionsIndex() {
       console.log("Index 'mentions' already exists. Skipping creation.");
       return;
     }
-    
+
     // Create the index if it doesn't exist
     const response = await esClient.indices.create({
       index: "mentions",
@@ -81,24 +81,25 @@ async function createMentionsIndex() {
         mappings: {
           properties: {
             mentionedUserId: { type: "keyword" }, // User who was mentioned
-            sourceId: { type: "keyword" },        // ID of the story or comment
-            sourceType: { type: "keyword" },      // "story" or "comment"
-            createdAt: { type: "date" },          // When the mention was created
-            createdBy: { type: "keyword" },       // User who created the mention
-            read: { type: "boolean", default: false } // Whether the mention has been read
+            sourceId: { type: "keyword" }, // ID of the story or comment
+            sourceType: { type: "keyword" }, // "story" or "comment"
+            createdAt: { type: "date" }, // When the mention was created
+            createdBy: { type: "keyword" }, // User who created the mention
+            read: { type: "boolean" }, // Whether the mention has been read
           },
         },
       },
     });
-    
+
     console.log("Mentions index created successfully:", response);
   } catch (error) {
     console.error("Error creating mentions index:", error);
+    throw error; // Add this to propagate the error
   }
 }
 
-module.exports = { 
-  createStoryIndex, 
+module.exports = {
+  createStoryIndex,
   createCommentIndex,
-  createMentionsIndex 
+  createMentionsIndex,
 };

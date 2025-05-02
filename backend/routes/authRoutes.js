@@ -1,102 +1,16 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const twilio = require("twilio");
 const { Sequelize } = require("sequelize");
-const otpGenerator = require("otp-generator");
 const User = require("../models/mysql/user");
 const router = express.Router();
 const redisClient = require("../config/redisClient");
 const esClient = require("../config/esClient");
+const otpService = require("../utils/otpUtils");
 
-// Twilio setup
-const twilioClient = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN
-);
-
-// Redis Key Patterns
-const OTP_KEY_PREFIX = "otp:";
+// Redis Key Patterns for tokens
 const REFRESH_TOKEN_PREFIX = "refresh:";
 const ACCESS_TOKEN_PREFIX = "access:";
-
-// OTP management functions with Redis
-const setOtp = async (phone, otp) => {
-  const otpData = {
-    otp,
-    attempts: 0,
-  };
-
-  // Store OTP with 5 minute expiry
-  await redisClient.setEx(
-    `${OTP_KEY_PREFIX}${phone}`,
-    300, // 5 minutes in seconds
-    JSON.stringify(otpData)
-  );
-};
-
-const checkOtpExpiry = async (phone) => {
-  const otpData = await redisClient.get(`${OTP_KEY_PREFIX}${phone}`);
-
-  if (!otpData) {
-    return { expired: true, message: "OTP not found or expired" };
-  }
-
-  return { expired: false };
-};
-
-const validateOtp = async (phone, inputOtp) => {
-  const expiryCheck = await checkOtpExpiry(phone);
-  if (expiryCheck.expired) {
-    return { valid: false, message: expiryCheck.message };
-  }
-
-  const otpData = JSON.parse(
-    await redisClient.get(`${OTP_KEY_PREFIX}${phone}`)
-  );
-
-  // Increment attempt counter
-  otpData.attempts += 1;
-
-  // Lock after 5 failed attempts
-  if (otpData.attempts > 5) {
-    await redisClient.del(`${OTP_KEY_PREFIX}${phone}`);
-    return {
-      valid: false,
-      message: "Too many failed attempts. Please request a new OTP.",
-    };
-  }
-
-  // Update attempts in Redis
-  await redisClient.setEx(
-    `${OTP_KEY_PREFIX}${phone}`,
-    300, // Reset TTL to 5 minutes
-    JSON.stringify(otpData)
-  );
-
-  if (otpData.otp !== inputOtp) {
-    return { valid: false, message: "Invalid OTP" };
-  }
-
-  return { valid: true };
-};
-
-// Helper function to send OTP via Twilio
-const sendOtpViaTwilio = async (phone, otp, isResend = false) => {
-  try {
-    await twilioClient.messages.create({
-      body: `Your OTP for mindbloom ${
-        isResend ? "is resent" : "registration/password change is"
-      } ${otp}`,
-      from: process.env.TWILIO_PHONE_NUMBER,
-      to: phone,
-    });
-    return { success: true };
-  } catch (err) {
-    console.error("Twilio Error:", err);
-    return { success: false, error: err };
-  }
-};
 
 // Token management with Redis
 const storeTokens = async (userId, accessToken, refreshToken) => {
@@ -253,7 +167,7 @@ router.get("/check-username/:username", async (req, res) => {
   }
 });
 
-// Generate OTP and send to phone
+// Generate OTP and send to phone/email
 router.post("/signup", validateSignupInput, async (req, res) => {
   try {
     const { name, username, email, phone, password } = req.body;
@@ -283,24 +197,18 @@ router.post("/signup", validateSignupInput, async (req, res) => {
 
     // Generate OTP if phone is provided
     if (phone) {
-      // Generate OTP
-      const otp = otpGenerator.generate(6, {
-        upperCase: false,
-        specialChars: false,
-        alphabets: false,
-        digits: true,
-      });
-
-      // Store OTP in Redis
-      await setOtp(phone, otp);
-
       // Send OTP via phone number
-      const result = await sendOtpViaTwilio(phone, otp);
+      const result = await otpService.sendOtp(phone, "phone");
 
       if (result.success) {
         return res.status(200).json({
           message: "OTP sent to phone",
           userData: { name, username, email, phone }, // Return the data for client to use in verification
+        });
+      } else if (result.rateLimited) {
+        return res.status(429).json({
+          message: result.message,
+          retryAfter: result.retryAfter,
         });
       } else {
         return res.status(500).json({ message: "Failed to send OTP" });
@@ -373,42 +281,28 @@ router.post("/signup", validateSignupInput, async (req, res) => {
 // Resend OTP endpoint
 router.post("/resend-otp", async (req, res) => {
   try {
-    const { phone } = req.body;
+    const { phone, email } = req.body;
 
-    if (!phone) {
-      return res.status(400).json({ message: "Phone number is required" });
+    if (!phone && !email) {
+      return res
+        .status(400)
+        .json({ message: "Phone number or email is required" });
     }
 
-    // Rate limiting check via Redis
-    const otpData = await redisClient.get(`${OTP_KEY_PREFIX}${phone}`);
-    if (otpData) {
-      // Check if OTP was created within the last minute
-      const ttl = await redisClient.ttl(`${OTP_KEY_PREFIX}${phone}`);
-      if (ttl > 240) {
-        // 300 - 60 = 240 (if more than 4 minutes remaining, less than 1 minute has passed)
-        return res.status(429).json({
-          message: "Please wait before requesting another OTP",
-          retryAfter: 300 - ttl, // Time in seconds to wait
-        });
-      }
-    }
+    // Determine channel and identifier
+    const channel = phone ? "phone" : "email";
+    const identifier = phone || email;
 
-    // Generate new OTP
-    const otp = otpGenerator.generate(6, {
-      upperCase: false,
-      specialChars: false,
-      alphabets: false,
-      digits: true,
-    });
-
-    // Store new OTP in Redis
-    await setOtp(phone, otp);
-
-    // Send OTP via Twilio
-    const result = await sendOtpViaTwilio(phone, otp, true);
+    // Send OTP
+    const result = await otpService.sendOtp(identifier, channel, true);
 
     if (result.success) {
       res.status(200).json({ message: "OTP resent successfully" });
+    } else if (result.rateLimited) {
+      res.status(429).json({
+        message: result.message,
+        retryAfter: result.retryAfter,
+      });
     } else {
       res.status(500).json({ message: "Failed to resend OTP" });
     }
@@ -421,28 +315,31 @@ router.post("/resend-otp", async (req, res) => {
 // Verify OTP and complete registration
 router.post("/verify-otp", async (req, res) => {
   try {
-    const { otp, phone, name, username, email, password } = req.body;
+    const { otp, phone, email, name, username, password } = req.body;
 
-    if (!otp || !phone || !name || !username || !password) {
+    // Determine identifier based on provided data
+    const identifier = phone || email;
+
+    if (!otp || !identifier || !name || !username || !password) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
     // Validate OTP
-    const otpValidation = await validateOtp(phone, otp);
+    const otpValidation = await otpService.validateOtp(identifier, otp);
     if (!otpValidation.valid) {
       return res.status(400).json({ message: otpValidation.message });
     }
 
     // Check if user already exists (double check in case someone registered in between)
-    const existingUser = await User.findOne({
-      where: {
-        [Sequelize.Op.or]: [
-          { username },
-          ...(email ? [{ email }] : []),
-          { phone },
-        ],
-      },
-    });
+    const whereClause = {
+      [Sequelize.Op.or]: [
+        { username },
+        ...(email ? [{ email }] : []),
+        ...(phone ? [{ phone }] : []),
+      ],
+    };
+
+    const existingUser = await User.findOne({ where: whereClause });
 
     if (existingUser) {
       let message = "User already exists";
@@ -450,7 +347,7 @@ router.post("/verify-otp", async (req, res) => {
         message = "Username is already taken";
       else if (email && existingUser.email === email)
         message = "Email is already registered";
-      else if (existingUser.phone === phone)
+      else if (phone && existingUser.phone === phone)
         message = "Phone number is already registered";
 
       return res.status(400).json({ message });
@@ -469,7 +366,7 @@ router.post("/verify-otp", async (req, res) => {
     });
 
     // Remove OTP from Redis after successful registration
-    await redisClient.del(`${OTP_KEY_PREFIX}${phone}`);
+    await otpService.removeOtp(identifier);
 
     // Generate JWT token
     const accessToken = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
@@ -492,7 +389,7 @@ router.post("/verify-otp", async (req, res) => {
       id: user.id.toString(),
       body: {
         userId: user.id,
-        username: user.username,
+        username: user.username.toLowerCase(),
         name: user.name,
         email: user.email,
         createdAt: new Date(),
@@ -645,36 +542,40 @@ router.post("/logout", async (req, res) => {
 // Generate OTP for password reset
 router.post("/reset-password/request", async (req, res) => {
   try {
-    const { phone } = req.body;
+    const { phone, email } = req.body;
 
-    if (!phone) {
-      return res.status(400).json({ message: "Phone number is required" });
+    if (!phone && !email) {
+      return res
+        .status(400)
+        .json({ message: "Phone number or email is required" });
     }
 
+    // Determine channel and identifier
+    const channel = phone ? "phone" : "email";
+    const identifier = phone || email;
+
     // Check if the user exists
-    const user = await User.findOne({ where: { phone } });
+    const whereClause = {};
+    if (phone) whereClause.phone = phone;
+    if (email) whereClause.email = email;
+
+    const user = await User.findOne({ where: whereClause });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Generate OTP
-    const otp = otpGenerator.generate(6, {
-      upperCase: false,
-      specialChars: false,
-      alphabets: false,
-      digits: true,
-    });
-
-    // Store OTP in Redis
-    await setOtp(phone, otp);
-
-    // Send OTP via phone
-    const result = await sendOtpViaTwilio(phone, otp);
+    // Send OTP via chosen channel
+    const result = await otpService.sendOtp(identifier, channel);
 
     if (result.success) {
-      res.status(200).json({ message: "OTP sent to phone" });
+      res.status(200).json({ message: `OTP sent to ${channel}` });
+    } else if (result.rateLimited) {
+      res.status(429).json({
+        message: result.message,
+        retryAfter: result.retryAfter,
+      });
     } else {
-      res.status(500).json({ message: "Failed to send OTP" });
+      res.status(500).json({ message: `Failed to send OTP to ${channel}` });
     }
   } catch (error) {
     console.error("Password reset request error:", error);
@@ -687,22 +588,26 @@ router.post("/reset-password/request", async (req, res) => {
 // Verify OTP and reset password
 router.post("/reset-password/verify", async (req, res) => {
   try {
-    const { otp, phone, newPassword } = req.body;
+    const { otp, phone, email, newPassword } = req.body;
 
-    if (!otp || !phone || !newPassword) {
-      return res
-        .status(400)
-        .json({ message: "OTP, phone and new password are required" });
+    // Determine identifier
+    const identifier = phone || email;
+
+    if (!otp || !identifier || !newPassword) {
+      return res.status(400).json({
+        message:
+          "OTP, identifier (phone or email), and new password are required",
+      });
     }
 
     if (newPassword.length < 6) {
-      return res
-        .status(400)
-        .json({ message: "Password must be at least 6 characters" });
+      return res.status(400).json({
+        message: "Password must be at least 6 characters",
+      });
     }
 
     // Validate OTP
-    const otpValidation = await validateOtp(phone, otp);
+    const otpValidation = await otpService.validateOtp(identifier, otp);
     if (!otpValidation.valid) {
       return res.status(400).json({ message: otpValidation.message });
     }
@@ -710,17 +615,22 @@ router.post("/reset-password/verify", async (req, res) => {
     // OTP is correct, hash the new password
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-    // Update the user's password in the database
-    const user = await User.findOne({ where: { phone } });
+    // Find user
+    const whereClause = {};
+    if (phone) whereClause.phone = phone;
+    if (email) whereClause.email = email;
+
+    const user = await User.findOne({ where: whereClause });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
+    // Update password
     user.password = hashedPassword;
     await user.save();
 
     // Remove OTP from Redis after successful reset
-    await redisClient.del(`${OTP_KEY_PREFIX}${phone}`);
+    await otpService.removeOtp(identifier);
 
     // Invalidate all tokens for this user
     await removeTokens(user.id);

@@ -31,7 +31,8 @@ router.get("/users/search", verifyToken, async (req, res) => {
       },
     });
 
-    const users = mapUsersResponse(response.body.hits.hits);
+    // Remove .body from response.body.hits.hits
+    const users = mapUsersResponse(response.hits.hits);
     res.status(200).json({ users });
   } catch (error) {
     if (error.name === "ResponseError") {
@@ -42,7 +43,7 @@ router.get("/users/search", verifyToken, async (req, res) => {
   }
 });
 
-// Utility function for mapping response
+// Utility function for mapping response remains the same
 const mapUsersResponse = (hits) => {
   return hits.map((hit) => ({
     userId: hit._id,
