@@ -116,28 +116,120 @@ router.put("/:id", verifyToken, async (req, res) => {
 });
 
 // Delete a story
+// Delete a story with cleanup (alternative approach)
 router.delete("/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
   const { userId } = req.user;
 
   try {
     // Check if the user is the author of the story
-    const storyResponse = await esClient.get({ index: "stories", id });
-    const story = storyResponse.body || storyResponse;
-
-    if (!story || story._source.userId !== userId) {
-      return res.status(403).json({ message: "You cannot delete this story" });
-    }
-
-    // Delete the story from Elasticsearch
-    await esClient.delete({
+    const storyResponse = await esClient.get({
       index: "stories",
       id,
     });
 
-    res.status(200).json({ message: "Story deleted successfully" });
+    const story = storyResponse.body || storyResponse;
+
+    if (!story._source || story._source.userId !== userId) {
+      return res.status(403).json({ message: "You cannot delete this story" });
+    }
+
+    // Step 1: Get all comments associated with this story
+    const commentsResponse = await esClient.search({
+      index: "comments",
+      body: {
+        query: {
+          term: { storyId: id },
+        },
+        size: 1000, // Set an appropriate limit
+        _source: false, // We only need IDs
+      },
+    });
+
+    // Extract comment IDs
+    let commentIds = [];
+    if (
+      commentsResponse.body &&
+      commentsResponse.body.hits &&
+      commentsResponse.body.hits.hits
+    ) {
+      commentIds = commentsResponse.body.hits.hits.map((hit) => hit._id);
+    } else if (commentsResponse.hits && commentsResponse.hits.hits) {
+      commentIds = commentsResponse.hits.hits.map((hit) => hit._id);
+    }
+
+    console.log(`Found ${commentIds.length} comments for story ${id}`);
+
+    // Step 2: Delete mentions for comments
+    if (commentIds.length > 0) {
+      await esClient.deleteByQuery({
+        index: "mentions",
+        refresh: true,
+        body: {
+          query: {
+            bool: {
+              must: [
+                { term: { sourceType: "comment" } },
+                { terms: { sourceId: commentIds } },
+              ],
+            },
+          },
+        },
+      });
+      console.log(`Deleted mentions for ${commentIds.length} comments`);
+    }
+
+    // Step 3: Delete story mentions
+    await esClient.deleteByQuery({
+      index: "mentions",
+      refresh: true,
+      body: {
+        query: {
+          bool: {
+            must: [
+              { term: { sourceId: id } },
+              { term: { sourceType: "story" } },
+            ],
+          },
+        },
+      },
+    });
+    console.log(`Deleted mentions for story ${id}`);
+
+    // Step 4: Delete comments
+    if (commentIds.length > 0) {
+      await esClient.deleteByQuery({
+        index: "comments",
+        refresh: true,
+        body: {
+          query: {
+            term: { storyId: id },
+          },
+        },
+      });
+      console.log(`Deleted ${commentIds.length} comments for story ${id}`);
+    }
+
+    // Step 5: Delete likes from Redis
+    await redisClient.del(`story:${id}:likes`);
+    console.log(`Deleted likes for story ${id}`);
+
+    // Step 6: Finally delete the story itself
+    await esClient.delete({
+      index: "stories",
+      id,
+      refresh: true,
+    });
+
+    res
+      .status(200)
+      .json({ message: "Story and all associated data deleted successfully" });
   } catch (error) {
-    console.error("Error deleting story:", error);
+    console.error("Error deleting story:", {
+      message: error.message,
+      stack: error.stack,
+      metadata: { storyId: id, userId },
+    });
     res.status(500).json({ message: "Failed to delete story" });
   }
 });
