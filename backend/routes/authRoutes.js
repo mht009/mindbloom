@@ -343,7 +343,7 @@ router.post("/signup", validateSignupInput, async (req, res) => {
         id: user.id.toString(),
         body: {
           userId: user.id,
-          username: user.username,
+          username: user.username.toLowerCase(),
           name: user.name,
           email: user.email,
           createdAt: new Date(),

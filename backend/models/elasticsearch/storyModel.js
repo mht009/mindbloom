@@ -65,4 +65,40 @@ async function createCommentIndex() {
   }
 }
 
-module.exports = { createStoryIndex, createCommentIndex };
+async function createMentionsIndex() {
+  try {
+    // Check if the index already exists
+    const indexExists = await esClient.indices.exists({ index: "mentions" });
+    if (indexExists) {
+      console.log("Index 'mentions' already exists. Skipping creation.");
+      return;
+    }
+    
+    // Create the index if it doesn't exist
+    const response = await esClient.indices.create({
+      index: "mentions",
+      body: {
+        mappings: {
+          properties: {
+            mentionedUserId: { type: "keyword" }, // User who was mentioned
+            sourceId: { type: "keyword" },        // ID of the story or comment
+            sourceType: { type: "keyword" },      // "story" or "comment"
+            createdAt: { type: "date" },          // When the mention was created
+            createdBy: { type: "keyword" },       // User who created the mention
+            read: { type: "boolean", default: false } // Whether the mention has been read
+          },
+        },
+      },
+    });
+    
+    console.log("Mentions index created successfully:", response);
+  } catch (error) {
+    console.error("Error creating mentions index:", error);
+  }
+}
+
+module.exports = { 
+  createStoryIndex, 
+  createCommentIndex,
+  createMentionsIndex 
+};

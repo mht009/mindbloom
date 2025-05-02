@@ -3,43 +3,9 @@ const esClient = require("../config/esClient");
 const redisClient = require("../config/redisClient");
 const verifyToken = require("../middlewares/verifyToken");
 const { v4: uuidv4 } = require("uuid");
+const { processMentions } = require("../utils/mentionUtils");
 
 const router = express.Router();
-
-// Save a story
-router.post("/stories", verifyToken, async (req, res) => {
-  const { title, body, hashtags } = req.body;
-  const userId = req.user.userId;
-
-  if (!title || !body || !hashtags) {
-    return res.status(400).json({ message: "All fields are required" });
-  }
-
-  const story = {
-    id: uuidv4(),
-    userId,
-    title,
-    body,
-    hashtags,
-    createdAt: new Date().toISOString(),
-  };
-
-  try {
-    await esClient.index({
-      index: "stories",
-      id: story.id,
-      body: story,
-    });
-
-    res.status(201).json({
-      message: "Story created successfully",
-      storyId: story.id,
-    });
-  } catch (error) {
-    console.error("Error saving story:", error);
-    res.status(500).json({ message: "Failed to save story" });
-  }
-});
 
 // Edit a story
 router.put("/stories/:id", verifyToken, async (req, res) => {
@@ -69,6 +35,24 @@ router.put("/stories/:id", verifyToken, async (req, res) => {
         },
       },
     });
+
+    // Delete previous mentions for this story
+    await esClient.deleteByQuery({
+      index: "mentions",
+      body: {
+        query: {
+          bool: {
+            must: [
+              { term: { sourceId: id } },
+              { term: { sourceType: "story" } },
+            ],
+          },
+        },
+      },
+    });
+
+    // Process new mentions in both title and body
+    await processMentions(title + " " + body, id, "story", userId);
 
     res.status(200).json({ message: "Story updated successfully" });
   } catch (error) {
@@ -214,8 +198,48 @@ router.get("/stories/:id/likes", verifyToken, async (req, res) => {
   }
 });
 
-// Post a comment on a story
+// Post a comment on a story with mentions
 router.post("/stories/:id/comments", verifyToken, async (req, res) => {
+  const { id: storyId } = req.params;
+  const { userId } = req.user;
+  const { body } = req.body;
+
+  try {
+    const commentId = uuidv4();
+    const comment = {
+      id: commentId,
+      storyId,
+      userId,
+      body,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Save comment first
+    await esClient.index({
+      index: "comments",
+      id: commentId,
+      body: comment,
+      refresh: true,
+    });
+
+    // Process mentions in comment body
+    await processMentions(body, commentId, "comment", userId);
+
+    res.status(201).json({
+      message: "Comment posted successfully",
+      comment: {
+        id: commentId,
+        ...comment,
+      },
+    });
+  } catch (error) {
+    console.error("Error posting comment:", error);
+    res.status(500).json({ message: "Failed to post comment" });
+  }
+});
+
+// Edit a comment with mentions
+router.put("/comments/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
   const { userId } = req.user;
   const { body } = req.body;
@@ -224,30 +248,61 @@ router.post("/stories/:id/comments", verifyToken, async (req, res) => {
     return res.status(400).json({ message: "Comment body is required" });
   }
 
-  const comment = {
-    storyId: id,
-    userId,
-    body,
-    createdAt: new Date().toISOString(),
-  };
-
   try {
-    const response = await esClient.index({
+    const existingCommentResponse = await esClient.get({
       index: "comments",
-      body: comment,
+      id,
     });
 
-    const responseData = response.body || response;
-    res.status(201).json({
-      message: "Comment posted successfully",
+    const existingComment =
+      existingCommentResponse.body || existingCommentResponse;
+
+    if (existingComment._source.userId !== userId) {
+      return res
+        .status(403)
+        .json({ message: "You can only edit your own comments" });
+    }
+
+    const updatedComment = {
+      ...existingComment._source,
+      body,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await esClient.update({
+      index: "comments",
+      id,
+      body: { doc: updatedComment },
+    });
+
+    // Delete previous mentions for this comment
+    await esClient.deleteByQuery({
+      index: "mentions",
+      body: {
+        query: {
+          bool: {
+            must: [
+              { term: { sourceId: id } },
+              { term: { sourceType: "comment" } },
+            ],
+          },
+        },
+      },
+    });
+
+    // Process new mentions
+    await processMentions(body, id, "comment", userId);
+
+    res.status(200).json({
+      message: "Comment updated successfully",
       comment: {
-        id: responseData._id,
-        ...comment,
+        id,
+        ...updatedComment,
       },
     });
   } catch (error) {
-    console.error("Error posting comment:", error);
-    res.status(500).json({ message: "Failed to post comment" });
+    console.error("Error editing comment:", error);
+    res.status(500).json({ message: "Failed to edit comment" });
   }
 });
 
@@ -296,56 +351,6 @@ router.get("/stories/:id/comments", async (req, res) => {
   }
 });
 
-// Edit a comment
-router.put("/comments/:id", verifyToken, async (req, res) => {
-  const { id } = req.params;
-  const { userId } = req.user;
-  const { body } = req.body;
-
-  if (!body) {
-    return res.status(400).json({ message: "Comment body is required" });
-  }
-
-  try {
-    const existingCommentResponse = await esClient.get({
-      index: "comments",
-      id,
-    });
-
-    const existingComment =
-      existingCommentResponse.body || existingCommentResponse;
-
-    if (existingComment._source.userId !== userId) {
-      return res
-        .status(403)
-        .json({ message: "You can only edit your own comments" });
-    }
-
-    const updatedComment = {
-      ...existingComment._source,
-      body,
-      updatedAt: new Date().toISOString(),
-    };
-
-    await esClient.update({
-      index: "comments",
-      id,
-      body: { doc: updatedComment },
-    });
-
-    res.status(200).json({
-      message: "Comment updated successfully",
-      comment: {
-        id,
-        ...updatedComment,
-      },
-    });
-  } catch (error) {
-    console.error("Error editing comment:", error);
-    res.status(500).json({ message: "Failed to edit comment" });
-  }
-});
-
 // Delete a comment
 router.delete("/comments/:id", verifyToken, async (req, res) => {
   const { id } = req.params;
@@ -379,7 +384,7 @@ router.delete("/comments/:id", verifyToken, async (req, res) => {
 });
 
 // Get stories by hashtag (paginated)
-router.get('/stories/hashtag/:hashtag', async (req, res) => {
+router.get("/stories/hashtag/:hashtag", async (req, res) => {
   const { hashtag } = req.params;
   const limit = parseInt(req.query.limit) || 10;
   const lastFetchedCreatedAt = req.query.lastFetchedCreatedAt; // Optional for pagination
@@ -392,28 +397,26 @@ router.get('/stories/hashtag/:hashtag', async (req, res) => {
       },
     },
     sort: [
-      { createdAt: { order: 'desc' } }, // Newest stories first
+      { createdAt: { order: "desc" } }, // Newest stories first
     ],
   };
 
   if (lastFetchedCreatedAt) {
     query.query = {
       bool: {
-        must: [
-          { term: { hashtags: hashtag } }
-        ],
+        must: [{ term: { hashtags: hashtag } }],
         filter: {
           range: {
-            createdAt: { lt: lastFetchedCreatedAt } // Fetch stories created before the last fetched one
-          }
-        }
-      }
+            createdAt: { lt: lastFetchedCreatedAt }, // Fetch stories created before the last fetched one
+          },
+        },
+      },
     };
   }
 
   try {
     const response = await esClient.search({
-      index: 'stories',
+      index: "stories",
       body: query,
     });
 
@@ -427,10 +430,206 @@ router.get('/stories/hashtag/:hashtag', async (req, res) => {
       hasMore: stories.length === limit, // If we got full 'limit', then maybe there are more
     });
   } catch (error) {
-    console.error('Error fetching stories by hashtag:', error);
-    res.status(500).json({ message: 'Failed to fetch stories by hashtag' });
+    console.error("Error fetching stories by hashtag:", error);
+    res.status(500).json({ message: "Failed to fetch stories by hashtag" });
   }
 });
 
+// Get mentions for the current user (stories and comments where they are tagged)
+router.get("/mentions", verifyToken, async (req, res) => {
+  const { userId } = req.user;
+  const limit = parseInt(req.query.limit) || 10;
+  const lastFetchedTimestamp = req.query.lastFetchedTimestamp;
+  const unreadOnly = req.query.unreadOnly === "true";
+
+  try {
+    let query = {
+      size: limit,
+      query: {
+        bool: {
+          must: [{ term: { mentionedUserId: userId } }],
+        },
+      },
+      sort: [{ createdAt: { order: "desc" } }],
+    };
+
+    // Add filter for unread mentions if requested
+    if (unreadOnly) {
+      query.query.bool.must.push({ term: { read: false } });
+    }
+
+    // Add pagination filter if lastFetchedTimestamp is provided
+    if (lastFetchedTimestamp) {
+      query.query.bool.filter = {
+        range: { createdAt: { lt: lastFetchedTimestamp } },
+      };
+    }
+
+    const response = await esClient.search({
+      index: "mentions",
+      body: query,
+    });
+
+    const mentions = [];
+    const mentionsData = response.body.hits.hits;
+
+    // Fetch details for each mention
+    for (const mention of mentionsData) {
+      const source = mention._source;
+
+      try {
+        let contentDetails;
+
+        if (source.sourceType === "story") {
+          // Fetch story details
+          const storyResponse = await esClient.get({
+            index: "stories",
+            id: source.sourceId,
+          });
+          contentDetails = storyResponse.body._source || storyResponse._source;
+        } else if (source.sourceType === "comment") {
+          // Fetch comment details
+          const commentResponse = await esClient.get({
+            index: "comments",
+            id: source.sourceId,
+          });
+          contentDetails =
+            commentResponse.body._source || commentResponse._source;
+
+          // Also fetch the associated story title
+          if (contentDetails.storyId) {
+            const storyResponse = await esClient.get({
+              index: "stories",
+              id: contentDetails.storyId,
+            });
+            const storyDetails =
+              storyResponse.body._source || storyResponse._source;
+            contentDetails.storyTitle = storyDetails.title;
+          }
+        }
+
+        // Include user details of who created the mention
+        const userResponse = await esClient.get({
+          index: "users",
+          id: source.createdBy,
+        });
+        const userDetails = userResponse.body._source || userResponse._source;
+
+        mentions.push({
+          id: mention._id,
+          type: source.sourceType,
+          sourceId: source.sourceId,
+          createdAt: source.createdAt,
+          read: source.read,
+          content: contentDetails,
+          mentionedBy: {
+            userId: source.createdBy,
+            username: userDetails.username,
+            displayName: userDetails.displayName || userDetails.username,
+          },
+        });
+      } catch (error) {
+        console.error(
+          `Error fetching details for mention ${mention._id}:`,
+          error
+        );
+        // Skip this mention if we can't fetch details
+        continue;
+      }
+    }
+
+    res.status(200).json({
+      mentions,
+      hasMore: mentions.length === limit,
+      lastTimestamp:
+        mentions.length > 0 ? mentions[mentions.length - 1].createdAt : null,
+    });
+  } catch (error) {
+    console.error("Error fetching mentions:", error);
+    res.status(500).json({ message: "Failed to fetch mentions" });
+  }
+});
+
+// Mark mentions as read
+router.put("/mentions/read", verifyToken, async (req, res) => {
+  const { userId } = req.user;
+  const { mentionIds } = req.body;
+
+  try {
+    // If specific mention IDs are provided, mark only those as read
+    if (mentionIds && Array.isArray(mentionIds) && mentionIds.length > 0) {
+      for (const mentionId of mentionIds) {
+        // Verify the mention belongs to the current user
+        const mentionResponse = await esClient.get({
+          index: "mentions",
+          id: mentionId,
+        });
+
+        const mention = mentionResponse.body || mentionResponse;
+        if (mention._source.mentionedUserId === userId) {
+          await esClient.update({
+            index: "mentions",
+            id: mentionId,
+            body: {
+              doc: {
+                read: true,
+              },
+            },
+          });
+        }
+      }
+    } else {
+      // Mark all unread mentions for this user as read
+      await esClient.updateByQuery({
+        index: "mentions",
+        body: {
+          query: {
+            bool: {
+              must: [
+                { term: { mentionedUserId: userId } },
+                { term: { read: false } },
+              ],
+            },
+          },
+          script: {
+            source: "ctx._source.read = true",
+          },
+        },
+      });
+    }
+
+    res.status(200).json({ message: "Mentions marked as read" });
+  } catch (error) {
+    console.error("Error marking mentions as read:", error);
+    res.status(500).json({ message: "Failed to mark mentions as read" });
+  }
+});
+
+// Get unread mentions count
+router.get("/mentions/count", verifyToken, async (req, res) => {
+  const { userId } = req.user;
+
+  try {
+    const response = await esClient.count({
+      index: "mentions",
+      body: {
+        query: {
+          bool: {
+            must: [
+              { term: { mentionedUserId: userId } },
+              { term: { read: false } },
+            ],
+          },
+        },
+      },
+    });
+
+    const count = response.body.count || response.count;
+    res.status(200).json({ count });
+  } catch (error) {
+    console.error("Error getting unread mentions count:", error);
+    res.status(500).json({ message: "Failed to get unread mentions count" });
+  }
+});
 
 module.exports = router;

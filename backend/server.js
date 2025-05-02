@@ -7,7 +7,10 @@ const { sequelize, initializeDatabase } = require("./config/mysql");
 const {
   createStoryIndex,
   createCommentIndex,
+  createMentionsIndex,
 } = require("./models/elasticsearch/storyModel");
+
+const { createUserIndex } = require("./models/elasticsearch/userModel");
 const authRoutes = require("./routes/authRoutes");
 const storyRoutes = require("./routes/storyRoutes");
 
@@ -47,6 +50,8 @@ async function initializeServices() {
     // Initialize the Elasticsearch story index
     await createStoryIndex();
     await createCommentIndex();
+    await createMentionsIndex();
+    await createUserIndex();
     console.log("Elasticsearch index created");
 
     return true;
