@@ -1,5 +1,6 @@
 // Import the isAdmin middleware
 const express = require("express");
+const router = express.Router();
 const esClient = require("../config/esClient");
 const redisClient = require("../config/redisClient");
 const verifyToken = require("../middlewares/verifyToken");
