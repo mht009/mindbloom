@@ -1,43 +1,52 @@
+// index.js - Main application file
 require("dotenv").config(); // Load environment variables first
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet"); // Add security headers
+const rateLimit = require("express-rate-limit");
 const { sequelize, initializeDatabase } = require("./config/mysql");
 const {
-  createStoryIndex,
-  createCommentIndex,
-  createMentionsIndex,
-} = require("./models/elasticsearch/storyModel");
+  initializeElasticsearchIndices,
+} = require("./models/elasticsearch/initIndices");
+const errorHandler = require("./middlewares/errorHandler");
 
-const { createUserIndex } = require("./models/elasticsearch/userModel");
+// Routes imports
 const authRoutes = require("./routes/authRoutes");
 const storyRoutes = require("./routes/storyRoutes");
 const userRoutes = require("./routes/userRoutes");
+// const searchRoutes = require("./routes/searchRoutes");
+const healthRoutes = require("./routes/healthRoutes");
 
 const app = express();
+
+// Global rate limiting middleware
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // limit each IP to 200 requests per windowMs
+  message: "Too many requests from this IP, please try again later",
+});
 
 // Middleware setup
 app.use(cors());
 app.use(helmet());
-
-app.use(express.json());  // For parsing application/json
-app.use(express.urlencoded({ extended: true }));  // For parsing 
+app.use(globalLimiter);
+app.use(express.json()); // For parsing application/json
+app.use(express.urlencoded({ extended: true })); // For parsing application/x-www-form-urlencoded
 
 // Routes
+app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/api/users", userRoutes);
+// app.use("/api/search", searchRoutes);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: "Not found" });
+  res.status(404).json({ message: "Not found", path: req.originalUrl });
 });
 
 // Global error handler
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: "Internal server error" });
-});
+app.use(errorHandler);
 
 // Initialize database and services
 async function initializeServices() {
@@ -50,16 +59,16 @@ async function initializeServices() {
     await sequelize.sync({ force: false });
     console.log("MySQL database synced successfully");
 
-    // Initialize the Elasticsearch story index
-    await createStoryIndex();
-    await createCommentIndex();
-    await createMentionsIndex();
-    await createUserIndex();
-    console.log("Elasticsearch index created");
+    // Initialize all Elasticsearch indices
+    await initializeElasticsearchIndices();
+    console.log("Elasticsearch indices initialized");
 
     return true;
   } catch (err) {
-    console.error("Service initialization error:", err);
+    console.error("Service initialization error:", {
+      message: err.message,
+      stack: err.stack,
+    });
     return false;
   }
 }
