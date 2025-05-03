@@ -148,6 +148,52 @@ async function createMentionsIndex() {
   }
 }
 
+// Define the mapping for the meditation_types index
+async function createMeditationTypeIndex() {
+  try {
+    const indexExists = await esClient.indices.exists({
+      index: "meditation_types",
+    });
+
+    if (indexExists) {
+      console.log(
+        "Index 'meditation_types' already exists. Skipping creation."
+      );
+      return;
+    }
+
+    const response = await esClient.indices.create({
+      index: "meditation_types",
+      body: {
+        mappings: {
+          properties: {
+            id: { type: "keyword" },
+            name: { type: "text", fields: { keyword: { type: "keyword" } } },
+            description: { type: "text" },
+            howToPractice: { type: "text" },
+            benefits: { type: "text" },
+            recommendedFor: { type: "text" },
+            recommendedDuration: { type: "text" },
+            imageUrl: { type: "keyword" },
+            videoUrl: { type: "keyword" },
+            additionalInfo: {
+              type: "object",
+              enabled: true,
+            },
+            order: { type: "integer" },
+            createdAt: { type: "date" },
+            updatedAt: { type: "date" },
+          },
+        },
+      },
+    });
+    console.log(`Created index: meditation_types`, response);
+  } catch (error) {
+    console.error("Error creating meditation_types index:", error);
+    throw error;
+  }
+}
+
 /**
  * Main function to initialize all indices
  */
@@ -157,6 +203,7 @@ async function initializeElasticsearchIndices() {
     await createStoryIndex();
     await createCommentIndex();
     await createMentionsIndex();
+    await createMeditationTypeIndex();
     console.log("All Elasticsearch indices initialized successfully");
   } catch (error) {
     console.error("Failed to initialize Elasticsearch indices:", {
@@ -172,5 +219,6 @@ module.exports = {
   createCommentIndex,
   createMentionsIndex,
   createUserIndex,
+  createMeditationTypeIndex,
   initializeElasticsearchIndices,
 };

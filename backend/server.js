@@ -1,4 +1,4 @@
-// index.js - Main application file
+// server.js - Main application file
 require("dotenv").config(); // Load environment variables first
 const express = require("express");
 const cors = require("cors");
@@ -10,13 +10,14 @@ const {
 } = require("./models/elasticsearch/initIndices");
 const errorHandler = require("./middlewares/errorHandler");
 const chatbotLimiter = require("./middlewares/chatBotLimiter");
+const { seedMeditationTypes } = require("./seeders/esMeditationTypeSeeder");
 
 // Routes imports
 const authRoutes = require("./routes/authRoutes");
 const storyRoutes = require("./routes/storyRoutes");
 const userRoutes = require("./routes/userRoutes");
-const meditationRoutes = require("./routes/meditationRoutes"); // New import
-// const searchRoutes = require("./routes/searchRoutes");
+const meditationRoutes = require("./routes/meditationRoutes");
+const meditationTypeRoutes = require("./routes/meditationTypeRoutes"); // Using ES routes
 const healthRoutes = require("./routes/healthRoutes");
 const chatbotRoutes = require("./routes/chatbotRoutes");
 
@@ -43,9 +44,9 @@ app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/api/users", userRoutes);
-app.use("/api/meditation", meditationRoutes); // New route
+app.use("/api/meditation", meditationRoutes);
+app.use("/api/meditation-types", meditationTypeRoutes); // Using ES routes
 app.use("/api/chatbot", chatbotLimiter, chatbotRoutes);
-// app.use("/api/search", searchRoutes);
 
 // 404 handler
 app.use((req, res) => {
@@ -66,9 +67,12 @@ async function initializeServices() {
     await sequelize.sync({ force: false });
     console.log("MySQL database synced successfully");
 
-    // Initialize all Elasticsearch indices
+    // Initialize Elasticsearch indices
     await initializeElasticsearchIndices();
     console.log("Elasticsearch indices initialized");
+
+    // Seed meditation types (only if they don't exist yet)
+    // await seedMeditationTypes();
 
     // Schedule data retention cleanup job
     scheduleCleanupJob();
