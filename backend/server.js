@@ -14,6 +14,7 @@ const { seedMeditationTypes } = require("./seeders/esMeditationTypeSeeder");
 
 // Routes imports
 const authRoutes = require("./routes/authRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 const storyRoutes = require("./routes/storyRoutes");
 const userRoutes = require("./routes/userRoutes");
 const meditationRoutes = require("./routes/meditationRoutes");
@@ -42,6 +43,7 @@ const { scheduleCleanupJob } = require("./utils/dataRetention");
 // Routes
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/meditation", meditationRoutes);
