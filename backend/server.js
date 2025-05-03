@@ -9,6 +9,7 @@ const {
   initializeElasticsearchIndices,
 } = require("./models/elasticsearch/initIndices");
 const errorHandler = require("./middlewares/errorHandler");
+const chatbotLimiter = require("./middlewares/chatBotLimiter");
 
 // Routes imports
 const authRoutes = require("./routes/authRoutes");
@@ -16,6 +17,7 @@ const storyRoutes = require("./routes/storyRoutes");
 const userRoutes = require("./routes/userRoutes");
 // const searchRoutes = require("./routes/searchRoutes");
 const healthRoutes = require("./routes/healthRoutes");
+const chatbotRoutes = require("./routes/chatbotRoutes");
 
 const app = express();
 
@@ -33,11 +35,14 @@ app.use(globalLimiter);
 app.use(express.json()); // For parsing application/json
 app.use(express.urlencoded({ extended: true })); // For parsing application/x-www-form-urlencoded
 
+const { scheduleCleanupJob } = require("./utils/dataRetention");
+
 // Routes
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/chatbot", chatbotLimiter, chatbotRoutes);
 // app.use("/api/search", searchRoutes);
 
 // 404 handler
@@ -62,6 +67,10 @@ async function initializeServices() {
     // Initialize all Elasticsearch indices
     await initializeElasticsearchIndices();
     console.log("Elasticsearch indices initialized");
+
+    // Schedule data retention cleanup job
+    scheduleCleanupJob();
+    console.log("Data retention policy (30 days) enforced");
 
     return true;
   } catch (err) {

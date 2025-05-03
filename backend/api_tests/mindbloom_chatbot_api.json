@@ -1,0 +1,339 @@
+{
+  "info": {
+    "name": "Mindbloom Meditation Chatbot API",
+    "description": "A collection for testing the Mindbloom Meditation Chatbot API endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login (Get Token)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"mohit21\",\n    \"password\": \"newpassword123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Login to get JWT token for authentication"
+          },
+          "response": []
+        }
+      ],
+      "description": "Endpoints for authentication"
+    },
+    {
+      "name": "Chatbot Conversations",
+      "item": [
+        {
+          "name": "Send Message",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"message\": \"I'd like to learn about mindfulness meditation\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/message",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "message"
+              ]
+            },
+            "description": "Send a message to the chatbot and get a response"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Conversations",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/conversations",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "conversations"
+              ]
+            },
+            "description": "Get all conversations for the authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Specific Conversation",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/conversation/{{conversation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "conversation",
+                "{{conversation_id}}"
+              ]
+            },
+            "description": "Get a specific conversation with all messages"
+          },
+          "response": []
+        },
+        {
+          "name": "Start New Conversation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/conversation/new",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "conversation",
+                "new"
+              ]
+            },
+            "description": "Start a new conversation with the chatbot"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Conversation",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"title\": \"Evening Meditation\",\n    \"isActive\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/conversation/{{conversation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "conversation",
+                "{{conversation_id}}"
+              ]
+            },
+            "description": "Update conversation properties"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Conversation",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/conversation/{{conversation_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "conversation",
+                "{{conversation_id}}"
+              ]
+            },
+            "description": "Delete a conversation and all its messages"
+          },
+          "response": []
+        }
+      ],
+      "description": "Endpoints for managing chatbot conversations"
+    },
+    {
+      "name": "Meditation Content",
+      "item": [
+        {
+          "name": "Start Meditation Assessment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/start-assessment",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "start-assessment"
+              ]
+            },
+            "description": "Start the guided meditation assessment process"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Meditation Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/meditation-types",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "meditation-types"
+              ]
+            },
+            "description": "Get information about all available meditation types"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Specific Meditation Type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/chatbot/meditation-type/mindfulness",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "api",
+                "chatbot",
+                "meditation-type",
+                "mindfulness"
+              ]
+            },
+            "description": "Get detailed information about a specific meditation type (e.g., mindfulness, lovingKindness, vipassana, etc.)"
+          },
+          "response": []
+        }
+      ],
+      "description": "Endpoints for meditation content and assessment"
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "your_jwt_token_here",
+      "type": "string"
+    },
+    {
+      "key": "conversation_id",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}
