@@ -15,6 +15,7 @@ const chatbotLimiter = require("./middlewares/chatBotLimiter");
 const authRoutes = require("./routes/authRoutes");
 const storyRoutes = require("./routes/storyRoutes");
 const userRoutes = require("./routes/userRoutes");
+const meditationRoutes = require("./routes/meditationRoutes"); // New import
 // const searchRoutes = require("./routes/searchRoutes");
 const healthRoutes = require("./routes/healthRoutes");
 const chatbotRoutes = require("./routes/chatbotRoutes");
@@ -42,6 +43,7 @@ app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/meditation", meditationRoutes); // New route
 app.use("/api/chatbot", chatbotLimiter, chatbotRoutes);
 // app.use("/api/search", searchRoutes);
 

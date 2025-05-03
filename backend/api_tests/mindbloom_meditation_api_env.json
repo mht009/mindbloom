@@ -1,0 +1,39 @@
+{
+  "id": "2b04c8e8-c9b0-4a7d-9f4e-b25a0c7f3d92",
+  "name": "Mindbloom Development",
+  "values": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "secret",
+      "enabled": true
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "currentStreak",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    },
+    {
+      "key": "currentTotalMinutes",
+      "value": "",
+      "type": "default",
+      "enabled": true
+    }
+  ],
+  "_postman_variable_scope": "environment",
+  "_postman_exported_at": "2025-05-03T12:00:00.000Z",
+  "_postman_exported_using": "Postman/10.12.0"
+}
