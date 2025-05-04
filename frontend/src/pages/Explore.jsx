@@ -219,48 +219,120 @@ const Explore = () => {
               const isLastElement = meditationTypes.length === index + 1;
               const benefits = parseBenefits(type.benefits);
 
+              // Generate a unique color for each card
+              const colors = [
+                "from-blue-500 to-indigo-600",
+                "from-purple-500 to-pink-500",
+                "from-green-400 to-cyan-500",
+                "from-amber-400 to-orange-500",
+                "from-rose-400 to-red-500",
+              ];
+              const colorClass = colors[index % colors.length];
+
               return (
                 <div
                   key={type.id || index}
                   ref={isLastElement ? lastMeditationElementRef : null}
-                  className="bg-white rounded-lg shadow-md overflow-hidden transition-transform hover:scale-102 hover:shadow-lg"
+                  className="bg-white rounded-xl shadow-md overflow-hidden transition-all duration-300 hover:shadow-xl hover:translate-y-[-5px] group"
                 >
-                  <div className={`h-3 bg-indigo-600`}></div>
+                  {/* Card header with gradient */}
+                  <div
+                    className={`h-24 bg-gradient-to-r ${colorClass} relative overflow-hidden`}
+                  >
+                    <div className="absolute inset-0 opacity-20">
+                      <svg
+                        className="h-full w-full"
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
+                      >
+                        <path d="M0,0 Q50,50 100,0 V100 H0 Z" fill="white" />
+                      </svg>
+                    </div>
+                    <div className="flex items-center justify-center h-full">
+                      <span className="text-5xl">
+                        {index === 0
+                          ? "🧠"
+                          : index === 1
+                          ? "❤️"
+                          : index === 2
+                          ? "✨"
+                          : index === 3
+                          ? "🧘"
+                          : "🌊"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Card content */}
                   <div className="p-6">
-                    <h3 className="text-xl font-semibold text-gray-800 mb-2">
+                    <h3 className="text-xl font-semibold text-gray-800 mb-3 group-hover:text-indigo-600 transition-colors">
                       {type.name}
                     </h3>
-                    <p className="text-gray-600 mb-4 line-clamp-3">
-                      {type.description}
-                    </p>
+
+                    <div className="bg-gray-50 p-3 rounded-lg mb-4">
+                      <p className="text-gray-600 line-clamp-3 italic text-sm">
+                        "{type.description.substring(0, 120)}..."
+                      </p>
+                    </div>
 
                     {/* Benefits */}
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">
-                      Benefits:
+                    <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                      <svg
+                        className="w-4 h-4 mr-1 text-indigo-500"
+                        fill="currentColor"
+                        viewBox="0 0 20 20"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      Benefits
                     </h4>
-                    <ul className="mb-4">
+
+                    <ul className="mb-5 pl-2">
                       {benefits.slice(0, 2).map((benefit, i) => (
                         <li
                           key={i}
-                          className="text-gray-600 text-sm flex items-start mb-1"
+                          className="text-gray-600 text-sm flex items-start mb-2"
                         >
-                          <span className="text-indigo-500 mr-2">•</span>
+                          <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-400 mt-1.5 mr-2 flex-shrink-0"></span>
                           <span>{benefit}</span>
                         </li>
                       ))}
                       {benefits.length > 2 && (
-                        <li className="text-gray-600 text-sm italic">
+                        <li className="text-indigo-500 text-sm font-medium">
                           +{benefits.length - 2} more benefits
                         </li>
                       )}
                     </ul>
 
-                    <Link
-                      to={`/meditation/${type.id}`}
-                      className="inline-block px-4 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition-colors"
-                    >
-                      Learn More
-                    </Link>
+                    <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+                      <span className="text-xs text-gray-500">
+                        {type.recommendedDuration || "5-15 min"}
+                      </span>
+
+                      <Link
+                        to={`/meditation/${type.id}`}
+                        className="px-4 py-2 bg-white border border-indigo-500 text-indigo-600 rounded-full text-sm font-medium hover:bg-indigo-50 transition-colors flex items-center"
+                      >
+                        Learn More
+                        <svg
+                          className="w-4 h-4 ml-1"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 5l7 7-7 7"
+                          />
+                        </svg>
+                      </Link>
+                    </div>
                   </div>
                 </div>
               );
