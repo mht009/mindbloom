@@ -15,18 +15,18 @@ const isAdmin = require("../middlewares/isAdmin");
 router.get("/", meditationTypeController.getAllTypes);
 
 /**
- * @route GET /api/meditation-types/:id
- * @desc Get meditation type by ID
- * @access Public
- */
-router.get("/:id", meditationTypeController.getTypeById);
-
-/**
  * @route GET /api/meditation-types/search
  * @desc Search meditation types
  * @access Public
  */
 router.get("/search", meditationTypeController.searchTypes);
+
+/**
+ * @route GET /api/meditation-types/:id
+ * @desc Get meditation type by ID
+ * @access Public
+ */
+router.get("/:id", meditationTypeController.getTypeById);
 
 // Admin-only routes (authentication + admin role required)
 // First apply authentication middleware

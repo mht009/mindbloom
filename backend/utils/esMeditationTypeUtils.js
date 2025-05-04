@@ -94,7 +94,7 @@ const searchMeditationTypes = async (query, page = 1, limit = 10) => {
   // Calculate from for pagination
   const from = (page - 1) * limit;
 
-  const response = await client.search({
+  const response = await esClient.search({
     index: INDEX_NAME,
     body: {
       query: {
