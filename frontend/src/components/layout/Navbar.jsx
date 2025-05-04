@@ -102,6 +102,14 @@ const Navbar = ({ user }) => {
                       Dashboard
                     </Link>
 
+                    <Link
+                      to="/my-stories"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => setIsDropdownOpen(false)}
+                    >
+                      My Stories
+                    </Link>
+
                     {/* Admin-only option */}
                     {user.isAdmin && (
                       <Link
@@ -212,6 +220,13 @@ const Navbar = ({ user }) => {
                 onClick={() => setIsMenuOpen(false)}
               >
                 Dashboard
+              </Link>
+              <Link
+                to="/my-stories"
+                className="text-gray-700 hover:bg-gray-50 hover:text-indigo-600 block px-3 py-2 rounded-md text-base font-medium"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                My Stories
               </Link>
 
               {/* Admin-only option for mobile */}
