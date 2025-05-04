@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import Navbar from "./Navbar";
 import Footer from "./Footer";
 import { useAuth } from "../../context/AuthContext";
+import ChatbotWidget from "../chatbot/ChatbotWidget";
 
 const MainLayout = () => {
   const { user } = useAuth();
@@ -14,6 +15,7 @@ const MainLayout = () => {
         <Outlet />
       </main>
       <Footer />
+      {user && <ChatbotWidget />}
     </div>
   );
 };

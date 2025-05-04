@@ -18,3 +18,120 @@
 .story-container::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* src/components/chatbot/ChatbotAnimations.css */
+
+/* Typing animation for the dots */
+@keyframes bounce {
+
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+  }
+
+  40% {
+    transform: translateY(-5px);
+  }
+}
+
+.delay-0 {
+  animation-delay: 0s;
+}
+
+.delay-150 {
+  animation-delay: 0.15s;
+}
+
+.delay-300 {
+  animation-delay: 0.3s;
+}
+
+/* Chat window entrance animation */
+.chat-window-enter {
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
+}
+
+.chat-window-enter-active {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity 300ms, transform 300ms;
+}
+
+.chat-window-exit {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.chat-window-exit-active {
+  opacity: 0;
+  transform: translateY(20px) scale(0.95);
+  transition: opacity 300ms, transform 300ms;
+}
+
+/* Button pulsing effect when there's a new message */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6);
+  }
+
+  70% {
+    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+.pulse-animation {
+  animation: pulse 2s infinite;
+}
+
+/* Message bubble entrance animation */
+.message-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.message-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+
+/* Wiggle animation for the chatbot button when inactive for a while */
+@keyframes wiggle {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  15% {
+    transform: rotate(-10deg);
+  }
+
+  30% {
+    transform: rotate(10deg);
+  }
+
+  45% {
+    transform: rotate(-5deg);
+  }
+
+  60% {
+    transform: rotate(5deg);
+  }
+
+  75% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
+  }
+}
+
+.wiggle-animation {
+  animation: wiggle 1.5s ease-in-out;
+}
