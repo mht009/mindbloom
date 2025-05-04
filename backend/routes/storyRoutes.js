@@ -344,6 +344,25 @@ router.get("/:id/likes", verifyToken, async (req, res) => {
   }
 });
 
+// Check if the current user has liked a story
+router.get("/:id/likes/status", verifyToken, async (req, res) => {
+  const { id } = req.params;
+  const { userId } = req.user;
+
+  try {
+    // Check if the user has liked this story using Redis
+    const isLiked = await redisClient.sIsMember(
+      `story:${id}:likes`,
+      String(userId)
+    );
+
+    res.status(200).json({ isLiked });
+  } catch (error) {
+    console.error("Error checking like status:", error);
+    res.status(500).json({ message: "Error checking like status" });
+  }
+});
+
 // Post a comment on a story with mentions
 router.post("/:id/comments", verifyToken, async (req, res) => {
   const { id: storyId } = req.params;
