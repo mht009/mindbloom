@@ -262,6 +262,108 @@ router.get("/mine", verifyToken, async (req, res) => {
   }
 });
 
+// Get a story by ID (enhanced with better error handling)
+router.get("/:id", async (req, res) => {
+  const { id } = req.params;
+
+  console.log(`[API] Fetching story with ID: ${id}`);
+
+  try {
+    // Check if the story exists first
+    const exists = await esClient.exists({
+      index: "stories",
+      id: id,
+    });
+
+    // Handle different client versions of exists response
+    const storyExists = exists.body?.exists || exists.body || exists;
+
+    if (!storyExists) {
+      console.log(`[API] Story with ID ${id} not found`);
+      return res.status(404).json({ message: "Story not found" });
+    }
+
+    // Fetch the story from Elasticsearch
+    const storyResponse = await esClient.get({
+      index: "stories",
+      id,
+    });
+
+    // Handle different Elasticsearch client response formats
+    let storySource;
+    if (storyResponse.body && storyResponse.body._source) {
+      storySource = storyResponse.body._source;
+    } else if (storyResponse._source) {
+      storySource = storyResponse._source;
+    } else {
+      console.error(
+        `[API] Unexpected ES response structure:`,
+        JSON.stringify(storyResponse).substring(0, 200)
+      );
+      return res.status(500).json({ message: "Error parsing story data" });
+    }
+
+    const story = {
+      id,
+      ...storySource,
+    };
+
+    // Fetch the username of the story creator
+    try {
+      const userResponse = await esClient.get({
+        index: "users",
+        id: story.userId.toString(), // Ensure it's a string
+      });
+
+      let userSource;
+      if (userResponse.body && userResponse.body._source) {
+        userSource = userResponse.body._source;
+      } else if (userResponse._source) {
+        userSource = userResponse._source;
+      }
+
+      if (userSource) {
+        story.user = {
+          userId: story.userId,
+          username: userSource.username,
+          displayName: userSource.displayName || userSource.username,
+          avatar: userSource.avatar || null,
+        };
+      }
+    } catch (userError) {
+      console.warn(
+        `[API] Unable to fetch user for story ${id}: ${userError.message}`
+      );
+      // Continue without user info
+    }
+
+    console.log(`[API] Successfully fetched story: ${id}`);
+    res.status(200).json({ story });
+  } catch (error) {
+    console.error("[API] Error fetching story:", error);
+
+    // Check for specific error types
+    if (error.statusCode === 404 || error.body?.found === false) {
+      return res.status(404).json({ message: "Story not found" });
+    }
+
+    // Include error details in development mode
+    const errorDetails =
+      process.env.NODE_ENV === "development"
+        ? {
+            message: error.message,
+            stack: error.stack,
+            details: error.meta?.body?.error,
+          }
+        : undefined;
+
+    res.status(500).json({
+      message: "Failed to fetch story",
+      error: errorDetails,
+    });
+  }
+});
+
 // Get paginated stories for infinite scroll
 router.get("", verifyToken, async (req, res) => {
   try {
