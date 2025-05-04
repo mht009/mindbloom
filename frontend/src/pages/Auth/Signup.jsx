@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
+import { useAuth } from "../../context/AuthContext"; // Import useAuth hook
 
 const Signup = () => {
   const [step, setStep] = useState(1); // 1: Initial signup, 2: OTP verification
@@ -21,6 +22,7 @@ const Signup = () => {
   const [otpSent, setOtpSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const navigate = useNavigate();
+  const { login } = useAuth(); // Extract login function from auth context
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -106,12 +108,18 @@ const Signup = () => {
         startResendCountdown();
       } else {
         // Direct signup (for email-based registration without OTP)
-        localStorage.setItem("accessToken", response.data.accessToken);
-        localStorage.setItem("refreshToken", response.data.refreshToken);
-        localStorage.setItem("user", JSON.stringify(response.data.user));
+        const { accessToken, refreshToken, user } = response.data;
+
+        // Store tokens and user info
+        localStorage.setItem("accessToken", accessToken);
+        localStorage.setItem("refreshToken", refreshToken);
+        localStorage.setItem("user", JSON.stringify(user));
+
+        // Update auth context
+        login(user, accessToken);
 
         // Redirect to dashboard
-        navigate("/dashboard");
+        navigate("/");
       }
     } catch (error) {
       console.error("Signup error:", error);
@@ -178,10 +186,15 @@ const Signup = () => {
         password: formData.password,
       });
 
-      // Store tokens in localStorage
-      localStorage.setItem("accessToken", response.data.accessToken);
-      localStorage.setItem("refreshToken", response.data.refreshToken);
-      localStorage.setItem("user", JSON.stringify(response.data.user));
+      const { accessToken, refreshToken, user } = response.data;
+
+      // Store tokens and user info
+      localStorage.setItem("accessToken", accessToken);
+      localStorage.setItem("refreshToken", refreshToken);
+      localStorage.setItem("user", JSON.stringify(user));
+
+      // Update auth context
+      login(user, accessToken);
 
       // Redirect to dashboard
       navigate("/dashboard");
