@@ -17,6 +17,7 @@ const authRoutes = require("./routes/authRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const storyRoutes = require("./routes/storyRoutes");
 const userRoutes = require("./routes/userRoutes");
+const userMgmtRoutes = require("./routes/userMgmtRoutes");
 const meditationRoutes = require("./routes/meditationRoutes");
 const meditationTypeRoutes = require("./routes/meditationTypeRoutes"); // Using ES routes
 const healthRoutes = require("./routes/healthRoutes");
@@ -44,6 +45,7 @@ const { scheduleCleanupJob } = require("./utils/dataRetention");
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/admin/usermgmt", userMgmtRoutes);
 app.use("/api/stories", storyRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/meditation", meditationRoutes);
