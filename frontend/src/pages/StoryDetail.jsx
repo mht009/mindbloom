@@ -6,6 +6,7 @@ import { formatDistanceToNow } from "date-fns";
 import { useAuth } from "../context/AuthContext";
 import UserAvatar from "../components/community/UserAvatar";
 import CommentList from "../components/community/CommentList";
+import { resolveUserId } from "../utils/userResolver";
 
 const StoryDetail = () => {
   const { id } = useParams();
@@ -22,13 +23,55 @@ const StoryDetail = () => {
     fetchStory();
   }, [id]);
 
-  useEffect(() => {
-    if (story) {
-      fetchLikeInfo();
+  const fetchStory = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await axios.get(`/api/stories/${id}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+        },
+      });
+
+      if (!response.data || !response.data.story) {
+        setError("Story response format is invalid");
+        return;
+      }
+
+      let storyData = response.data.story;
+
+      // Resolve username for the story author if not already included
+      if (!storyData.user) {
+        const userInfo = await resolveUserId(storyData.userId);
+        if (userInfo) {
+          storyData = {
+            ...storyData,
+            user: userInfo,
+          };
+        }
+      }
+
+      setStory(storyData);
+
+      // Fetch like info
+      await fetchLikeInfo();
+    } catch (err) {
+      console.error("Error fetching story:", err);
+
+      if (err.response?.status === 404) {
+        setError("This story could not be found. It may have been deleted.");
+      } else {
+        setError("Failed to load this story. Please try again later.");
+      }
+    } finally {
+      setLoading(false);
     }
-  }, [id, story]);
+  };
 
   const fetchLikeInfo = async () => {
+    if (!user) return;
+
     try {
       // Fetch like count
       const countResponse = await axios.get(`/api/stories/${id}/likes`, {
@@ -50,33 +93,17 @@ const StoryDetail = () => {
       setIsLiked(statusResponse.data.isLiked);
     } catch (err) {
       console.error("Error fetching like information:", err);
-    }
-  };
-
-  const fetchStory = async () => {
-    try {
-      setLoading(true);
-
-      // Fetch the actual story data from the API
-      const response = await axios.get(`/api/stories/${id}`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
-        },
-      });
-
-      // Set the story data
-      setStory(response.data.story);
-    } catch (err) {
-      console.error("Error fetching story:", err);
-      setError(
-        "Failed to load this story. It may have been deleted or is unavailable."
-      );
-    } finally {
-      setLoading(false);
+      // Don't set an error for like info failures - non-critical
     }
   };
 
   const toggleLike = async () => {
+    if (!user) {
+      // Prompt user to login if not authenticated
+      alert("Please log in to like stories");
+      return;
+    }
+
     try {
       if (isLiked) {
         await axios.delete(`/api/stories/${id}/like`, {
@@ -100,22 +127,42 @@ const StoryDetail = () => {
       setIsLiked(!isLiked);
     } catch (err) {
       console.error("Error toggling like:", err);
+      alert("Could not update like status. Please try again.");
     }
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Are you sure you want to delete this story?")) return;
+    const isAuthor = user && user.id === story.userId;
+    const isAdmin = user && user.isAdmin;
+
+    // Custom confirmation message based on if admin or author
+    const confirmMessage =
+      isAdmin && !isAuthor
+        ? "Are you sure you want to delete this story as an administrator? This action cannot be undone."
+        : "Are you sure you want to delete this story? This action cannot be undone.";
+
+    if (!window.confirm(confirmMessage)) return;
 
     try {
       setIsDeleting(true);
-      await axios.delete(`/api/stories/${id}`, {
+
+      // Use the appropriate endpoint based on if admin or author
+      const deleteUrl =
+        isAdmin && !isAuthor
+          ? `/api/admin/stories/delete/${id}`
+          : `/api/stories/${id}`;
+
+      await axios.delete(deleteUrl, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
         },
       });
+
+      // Redirect to community page
       navigate("/community", { replace: true });
     } catch (err) {
       console.error("Error deleting story:", err);
+      alert("Failed to delete the story. Please try again.");
       setIsDeleting(false);
     }
   };
@@ -136,7 +183,7 @@ const StoryDetail = () => {
       });
     }
 
-    // Process @mentions (this would depend on your backend implementation)
+    // Process @mentions
     formattedText = formattedText.replace(
       /@(\w+)/g,
       '<a href="/profile/$1" class="text-indigo-600 hover:underline">@$1</a>'
@@ -231,15 +278,13 @@ const StoryDetail = () => {
                     to={`/profile/${story.userId}`}
                     className="font-medium text-gray-800 hover:text-indigo-600"
                   >
-                    {story.user
-                      ? story.user.username
-                      : story.username || "User " + story.userId}
+                    {story.user ? story.user.username : `User ${story.userId}`}
                   </Link>
                   <p className="text-sm text-gray-500">{timeAgo}</p>
                 </div>
               </div>
 
-              {/* Author actions */}
+              {/* Author or admin actions */}
               {(isAuthor || isAdmin) && (
                 <div className="flex space-x-3">
                   {isAuthor && (
@@ -256,7 +301,7 @@ const StoryDetail = () => {
                     className="px-4 py-2 border border-red-300 text-red-600 rounded-md hover:bg-red-50 transition-colors text-sm disabled:opacity-50"
                   >
                     {isDeleting ? "Deleting..." : "Delete"}
-                    {!isAuthor && isAdmin ? " (Admin)" : ""}
+                    {!isAuthor && isAdmin && " (Admin)"}
                   </button>
                 </div>
               )}
@@ -298,7 +343,7 @@ const StoryDetail = () => {
               onClick={toggleLike}
               className={`flex items-center ${
                 isLiked ? "text-pink-600" : "text-gray-500 hover:text-pink-600"
-              }`}
+              } transition-colors`}
             >
               <svg
                 className={`w-6 h-6 mr-2 ${
@@ -319,7 +364,7 @@ const StoryDetail = () => {
             </button>
 
             <button
-              className="flex items-center text-gray-500 hover:text-indigo-600"
+              className="flex items-center text-gray-500 hover:text-indigo-600 transition-colors"
               onClick={() =>
                 document
                   .getElementById("comments-section")
@@ -342,7 +387,7 @@ const StoryDetail = () => {
               Comments
             </button>
 
-            <button className="flex items-center text-gray-500 hover:text-indigo-600">
+            <button className="flex items-center text-gray-500 hover:text-indigo-600 transition-colors">
               <svg
                 className="w-6 h-6 mr-2"
                 fill="none"
@@ -368,16 +413,6 @@ const StoryDetail = () => {
         >
           <h2 className="text-xl font-semibold text-gray-800 mb-6">Comments</h2>
           <CommentList storyId={id} currentUser={user} />
-        </div>
-
-        {/* Related stories section */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-semibold text-gray-800 mb-6">
-            Related Stories
-          </h2>
-          <p className="text-gray-500 text-center py-4">
-            Related stories feature coming soon!
-          </p>
         </div>
       </div>
     </div>

@@ -15,8 +15,10 @@ const EditableComment = ({ comment, currentUser, onUpdate, onDelete }) => {
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Check if the user is authorized to edit or delete
-  const canModify =
+  const canEdit = currentUser && currentUser.id === comment.userId;
+  const canDelete =
     currentUser && (currentUser.id === comment.userId || currentUser.isAdmin);
+  const isAdmin = currentUser && currentUser.isAdmin;
 
   const startEditing = () => {
     setEditedContent(comment.content || comment.body || "");
@@ -71,13 +73,23 @@ const EditableComment = ({ comment, currentUser, onUpdate, onDelete }) => {
   };
 
   const deleteComment = async () => {
-    if (!window.confirm("Are you sure you want to delete this comment?"))
-      return;
+    const confirmMessage =
+      isAdmin && currentUser.id !== comment.userId
+        ? "Are you sure you want to delete this comment as an administrator?"
+        : "Are you sure you want to delete this comment?";
+
+    if (!window.confirm(confirmMessage)) return;
 
     try {
       setIsDeleting(true);
 
-      await axios.delete(`/api/stories/comments/${comment.id}`, {
+      // Use the admin endpoint if deleting as admin
+      const deleteUrl =
+        isAdmin && currentUser.id !== comment.userId
+          ? `/api/admin/comments/delete/${comment.id}`
+          : `/api/stories/comments/${comment.id}`;
+
+      await axios.delete(deleteUrl, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
         },
@@ -170,8 +182,9 @@ const EditableComment = ({ comment, currentUser, onUpdate, onDelete }) => {
             </div>
 
             {/* Action buttons */}
-            {canModify && (
-              <div className="flex space-x-2">
+            <div className="flex space-x-2">
+              {/* Edit button - only shown to comment author */}
+              {canEdit && (
                 <button
                   onClick={startEditing}
                   className="text-gray-400 hover:text-indigo-600"
@@ -191,6 +204,10 @@ const EditableComment = ({ comment, currentUser, onUpdate, onDelete }) => {
                     />
                   </svg>
                 </button>
+              )}
+
+              {/* Delete button - shown to comment author or admin */}
+              {canDelete && (
                 <button
                   onClick={deleteComment}
                   disabled={isDeleting}
@@ -198,7 +215,7 @@ const EditableComment = ({ comment, currentUser, onUpdate, onDelete }) => {
                     isDeleting ? "opacity-50 cursor-not-allowed" : ""
                   }`}
                   title={
-                    currentUser.isAdmin && currentUser.id !== comment.userId
+                    isAdmin && currentUser.id !== comment.userId
                       ? "Delete as Admin"
                       : "Delete"
                   }
@@ -221,8 +238,15 @@ const EditableComment = ({ comment, currentUser, onUpdate, onDelete }) => {
                     </svg>
                   )}
                 </button>
-              </div>
-            )}
+              )}
+
+              {/* Admin badge */}
+              {isAdmin && currentUser.id !== comment.userId && (
+                <span className="text-xs px-2 py-1 bg-red-100 text-red-800 rounded-full">
+                  Admin
+                </span>
+              )}
+            </div>
           </div>
         </div>
       )}
