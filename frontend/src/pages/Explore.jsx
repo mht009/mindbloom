@@ -100,16 +100,6 @@ const Explore = () => {
     setPage(1); // Reset to first page when filtering
   };
 
-  // Function to navigate to previous meditation type
-  const prevMeditationType = () => {
-    // This function would be used if implementing a carousel
-  };
-
-  // Function to navigate to next meditation type
-  const nextMeditationType = () => {
-    // This function would be used if implementing a carousel
-  };
-
   // Parse benefits text into an array (if it's a string with bullet points)
   const parseBenefits = (benefitsText) => {
     if (!benefitsText) return [];
