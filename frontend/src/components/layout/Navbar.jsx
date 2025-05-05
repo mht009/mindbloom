@@ -1,13 +1,11 @@
 // src/components/layout/Navbar.jsx
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useAuth } from "../../context/AuthContext";
+import { Link } from "react-router-dom";
+import LogoutButton from "../auth/Logout";
 
 const Navbar = ({ user }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const { logout } = useAuth();
-  const navigate = useNavigate();
 
   const toggleMenu = () => {
     setIsMenuOpen(!isMenuOpen);
@@ -15,16 +13,6 @@ const Navbar = ({ user }) => {
 
   const toggleDropdown = () => {
     setIsDropdownOpen(!isDropdownOpen);
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout(); // This will call the logout API function from our auth context
-      setIsDropdownOpen(false);
-      navigate("/login"); // Navigate to login page after logout
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
   };
 
   return (
@@ -121,12 +109,11 @@ const Navbar = ({ user }) => {
                       </Link>
                     )}
 
-                    <button
+                    {/* Use the LogoutButton component */}
+                    <LogoutButton
                       className="w-full text-left block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      onClick={handleLogout}
-                    >
-                      Logout
-                    </button>
+                      onClick={() => setIsDropdownOpen(false)}
+                    />
                   </div>
                 )}
               </div>
@@ -240,15 +227,11 @@ const Navbar = ({ user }) => {
                 </Link>
               )}
 
-              <button
+              {/* Use the LogoutButton component for mobile menu */}
+              <LogoutButton
                 className="w-full text-left text-gray-700 hover:bg-gray-50 hover:text-indigo-600 block px-3 py-2 rounded-md text-base font-medium"
-                onClick={() => {
-                  handleLogout();
-                  setIsMenuOpen(false);
-                }}
-              >
-                Logout
-              </button>
+                onClick={() => setIsMenuOpen(false)}
+              />
             </>
           )}
         </div>
