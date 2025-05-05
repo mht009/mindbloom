@@ -1,6 +1,7 @@
 // src/components/chatbot/ChatbotWidget.jsx
 import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import ReactMarkdown from "react-markdown";
 
 const ChatbotWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -8,7 +9,11 @@ const ChatbotWidget = () => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const [conversations, setConversations] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
   const messagesEndRef = useRef(null);
+  const [hasNewMessage, setHasNewMessage] = useState(false);
+  const [shouldWiggle, setShouldWiggle] = useState(false);
 
   // Fetch or start a new conversation on component mount
   useEffect(() => {
@@ -38,7 +43,132 @@ const ChatbotWidget = () => {
     };
 
     startNewConversation();
+    fetchConversations();
   }, []);
+
+  // Fetch all conversations for history
+  const fetchConversations = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get("/api/chatbot/conversations", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      setConversations(response.data);
+    } catch (error) {
+      console.error("Error fetching conversations:", error);
+    }
+  };
+
+  // Load a specific conversation
+  const loadConversation = async (convId) => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem("token");
+      const response = await axios.get(`/api/chatbot/conversation/${convId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      setConversationId(response.data.conversation.id);
+      setMessages(
+        response.data.messages.map((msg) => ({
+          type: msg.type,
+          content: msg.content,
+        }))
+      );
+
+      // Set this conversation as active
+      await axios.put(
+        `/api/chatbot/conversation/${convId}`,
+        { isActive: true },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      setShowHistory(false);
+    } catch (error) {
+      console.error("Error loading conversation:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Delete a conversation
+  const deleteConversation = async (convId, e) => {
+    e.stopPropagation(); // Prevent triggering the parent onClick
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`/api/chatbot/conversation/${convId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      // Refresh conversation list
+      fetchConversations();
+
+      // If we deleted the current conversation, start a new one
+      if (convId === conversationId) {
+        const response = await axios.post(
+          "/api/chatbot/conversation/new",
+          {},
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          }
+        );
+
+        setConversationId(response.data.conversation.id);
+        setMessages([
+          {
+            type: "assistant",
+            content: response.data.message,
+          },
+        ]);
+      }
+    } catch (error) {
+      console.error("Error deleting conversation:", error);
+    }
+  };
+
+  // Start a new conversation
+  const startNewConversation = async () => {
+    try {
+      setIsLoading(true);
+      const token = localStorage.getItem("token");
+      const response = await axios.post(
+        "/api/chatbot/conversation/new",
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      setConversationId(response.data.conversation.id);
+      setMessages([
+        {
+          type: "assistant",
+          content: response.data.message,
+        },
+      ]);
+
+      // Refresh conversation list
+      fetchConversations();
+    } catch (error) {
+      console.error("Error starting new conversation:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Scroll to bottom of messages when new messages are added
   useEffect(() => {
@@ -47,8 +177,37 @@ const ChatbotWidget = () => {
     }
   }, [messages]);
 
+  // Add notification animation when new message arrives and chat is closed
+  useEffect(() => {
+    if (messages.length > 0 && !isOpen) {
+      setHasNewMessage(true);
+    } else {
+      setHasNewMessage(false);
+    }
+  }, [messages, isOpen]);
+
+  // Add wiggle animation to catch user attention after 2 minutes of inactivity
+  useEffect(() => {
+    const wiggleTimer = setTimeout(() => {
+      if (!isOpen && messages.length <= 1) {
+        setShouldWiggle(true);
+        setTimeout(() => setShouldWiggle(false), 1500);
+      }
+    }, 120000); // 2 minutes
+
+    return () => clearTimeout(wiggleTimer);
+  }, [isOpen, messages]);
+
   const toggleChat = () => {
     setIsOpen(!isOpen);
+  };
+
+  const toggleHistory = () => {
+    setShowHistory(!showHistory);
+    // Fetch latest conversations when opening history
+    if (!showHistory) {
+      fetchConversations();
+    }
   };
 
   const handleInputChange = (e) => {
@@ -74,7 +233,10 @@ const ChatbotWidget = () => {
       const token = localStorage.getItem("token");
       const response = await axios.post(
         "/api/chatbot/message",
-        { message: userMessage },
+        {
+          message: userMessage,
+          conversationId: conversationId,
+        },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -92,6 +254,9 @@ const ChatbotWidget = () => {
       if (response.data.conversationId && !conversationId) {
         setConversationId(response.data.conversationId);
       }
+
+      // Refresh conversation list to update the preview
+      fetchConversations();
     } catch (error) {
       console.error("Error sending message:", error);
       setMessages((prevMessages) => [
@@ -106,70 +271,67 @@ const ChatbotWidget = () => {
     }
   };
 
-  const handleStartAssessment = async () => {
-    setIsLoading(true);
-
-    try {
-      const token = localStorage.getItem("token");
-      const response = await axios.post(
-        "/api/chatbot/start-assessment",
-        {},
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      setMessages([
-        {
-          type: "user",
-          content: "I'd like to start the meditation assessment.",
-        },
-        { type: "assistant", content: response.data.message },
-      ]);
-
-      if (response.data.conversationId) {
-        setConversationId(response.data.conversationId);
-      }
-    } catch (error) {
-      console.error("Error starting assessment:", error);
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        {
-          type: "assistant",
-          content:
-            "Sorry, I encountered an error starting the assessment. Please try again later.",
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
+  // Format date for conversation history
+  const formatDate = (dateString) => {
+    const date = new Date(dateString);
+    return (
+      date.toLocaleDateString() +
+      " " +
+      date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    );
   };
 
-  const [hasNewMessage, setHasNewMessage] = useState(false);
-  const [shouldWiggle, setShouldWiggle] = useState(false);
+  // Custom component to render markdown messages with proper styling
+  const MarkdownMessage = ({ content, type }) => {
+    // Define CSS classes based on message type
+    const messageClasses = `p-3 rounded-2xl max-w-[85%] break-words leading-relaxed text-sm ${
+      type === "user"
+        ? "bg-blue-500 text-white self-end rounded-br-sm"
+        : "bg-gray-200 text-gray-800 self-start rounded-bl-sm"
+    } animate-fade-in-down`;
 
-  // Add notification animation when new message arrives and chat is closed
-  useEffect(() => {
-    if (messages.length > 0 && !isOpen) {
-      setHasNewMessage(true);
-    } else {
-      setHasNewMessage(false);
-    }
-  }, [messages, isOpen]);
+    // Determine text color for components inside ReactMarkdown
+    const textColor = type === "user" ? "text-white" : "text-gray-800";
 
-  // Add wiggle animation to catch user attention after 2 minutes of inactivity
-  useEffect(() => {
-    const wiggleTimer = setTimeout(() => {
-      if (!isOpen && messages.length <= 1) {
-        setShouldWiggle(true);
-        setTimeout(() => setShouldWiggle(false), 1500);
-      }
-    }, 120000); // 2 minutes
-
-    return () => clearTimeout(wiggleTimer);
-  }, [isOpen, messages]);
+    return (
+      <div className={messageClasses}>
+        <div className={textColor}>
+          <ReactMarkdown
+            components={{
+              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+              ul: ({ children }) => (
+                <ul className="list-disc pl-5 mb-2">{children}</ul>
+              ),
+              ol: ({ children }) => (
+                <ol className="list-decimal pl-5 mb-2">{children}</ol>
+              ),
+              li: ({ children }) => <li className="mb-1">{children}</li>,
+              h1: ({ children }) => (
+                <h1 className="text-lg font-bold mb-2">{children}</h1>
+              ),
+              h2: ({ children }) => (
+                <h2 className="text-base font-bold mb-2">{children}</h2>
+              ),
+              h3: ({ children }) => (
+                <h3 className="text-sm font-bold mb-2">{children}</h3>
+              ),
+              strong: ({ children }) => (
+                <strong className="font-bold">{children}</strong>
+              ),
+              em: ({ children }) => <em className="italic">{children}</em>,
+              blockquote: ({ children }) => (
+                <blockquote className="border-l-4 border-gray-400 pl-2 italic my-2">
+                  {children}
+                </blockquote>
+              ),
+            }}
+          >
+            {content}
+          </ReactMarkdown>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="fixed bottom-8 right-8 z-50 font-sans">
@@ -190,7 +352,7 @@ const ChatbotWidget = () => {
 
       {/* Chat window with animation */}
       <div
-        className={`absolute bottom-20 right-0 w-1/5 h-[70vh] bg-white rounded-xl shadow-xl flex flex-col overflow-hidden transition-all duration-300 min-w-[300px] max-w-[450px] transform ${
+        className={`absolute bottom-20 right-0 w-[400px] h-[75vh] bg-white rounded-xl shadow-xl flex flex-col overflow-hidden transition-all duration-300 transform ${
           isOpen
             ? "opacity-100 translate-y-0 scale-100"
             : "opacity-0 translate-y-4 scale-95 pointer-events-none"
@@ -205,71 +367,121 @@ const ChatbotWidget = () => {
           <div className="flex space-x-2">
             <button
               className="bg-white text-blue-500 border-none rounded-md px-3 py-1 text-xs cursor-pointer transition-all duration-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center"
-              onClick={handleStartAssessment}
+              onClick={toggleHistory}
               disabled={isLoading}
             >
-              <span className="mr-1">✨</span>
-              Start Assessment
+              <span className="mr-1">📚</span>
+              History
+            </button>
+            <button
+              className="bg-white text-blue-500 border-none rounded-md px-3 py-1 text-xs cursor-pointer transition-all duration-200 hover:bg-gray-100 disabled:opacity-60 disabled:cursor-not-allowed flex items-center"
+              onClick={startNewConversation}
+              disabled={isLoading}
+            >
+              <span className="mr-1">➕</span>
+              New Chat
             </button>
           </div>
         </div>
 
-        {/* Messages area */}
-        <div className="flex-grow p-4 overflow-y-auto flex flex-col gap-3 bg-gray-50">
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`p-3 rounded-2xl max-w-[85%] break-words leading-relaxed text-sm ${
-                message.type === "user"
-                  ? "bg-blue-500 text-white self-end rounded-br-sm"
-                  : "bg-gray-200 text-gray-800 self-start rounded-bl-sm"
-              } animate-fade-in-down`}
-            >
-              {message.content}
-            </div>
-          ))}
-          {isLoading && (
-            <div className="p-3 rounded-2xl max-w-[85%] bg-gray-200 text-gray-800 self-start rounded-bl-sm">
-              <div className="flex space-x-1">
-                <div
-                  className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                  style={{ animationDelay: "0ms" }}
-                ></div>
-                <div
-                  className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                  style={{ animationDelay: "150ms" }}
-                ></div>
-                <div
-                  className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                  style={{ animationDelay: "300ms" }}
-                ></div>
+        {/* Conversation History */}
+        {showHistory ? (
+          <div className="flex-grow p-4 overflow-y-auto bg-gray-50">
+            <h4 className="text-sm font-medium text-gray-700 mb-3">
+              Conversation History
+            </h4>
+            {conversations.length === 0 ? (
+              <p className="text-gray-500 text-sm">
+                No previous conversations found.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {conversations.map((conv) => (
+                  <div
+                    key={conv.id}
+                    className="p-3 bg-white rounded-lg shadow-sm hover:bg-gray-100 cursor-pointer flex justify-between items-center"
+                    onClick={() => loadConversation(conv.id)}
+                  >
+                    <div className="flex-1 overflow-hidden">
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {conv.title}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {formatDate(conv.updatedAt)}
+                      </p>
+                      {conv.Messages && conv.Messages.length > 0 && (
+                        <p className="text-xs text-gray-600 mt-1 truncate">
+                          {conv.Messages[0].content}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      className="ml-2 text-red-500 hover:text-red-700 p-1"
+                      onClick={(e) => deleteConversation(conv.id, e)}
+                      title="Delete conversation"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                ))}
               </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
+            )}
+          </div>
+        ) : (
+          /* Messages area */
+          <div className="flex-grow p-4 overflow-y-auto flex flex-col gap-3 bg-gray-50">
+            {messages.map((message, index) => (
+              <MarkdownMessage
+                key={index}
+                content={message.content}
+                type={message.type}
+              />
+            ))}
+            {isLoading && (
+              <div className="p-3 rounded-2xl max-w-[85%] bg-gray-200 text-gray-800 self-start rounded-bl-sm">
+                <div className="flex space-x-1">
+                  <div
+                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                    style={{ animationDelay: "0ms" }}
+                  ></div>
+                  <div
+                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                    style={{ animationDelay: "150ms" }}
+                  ></div>
+                  <div
+                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                    style={{ animationDelay: "300ms" }}
+                  ></div>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
 
-        {/* Input form */}
-        <form
-          className="flex p-3 bg-white border-t border-gray-200"
-          onSubmit={handleSubmit}
-        >
-          <input
-            type="text"
-            value={input}
-            onChange={handleInputChange}
-            placeholder="Type your message..."
-            disabled={isLoading}
-            className="flex-grow px-4 py-2 border border-gray-300 rounded-full text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:bg-gray-100 disabled:cursor-not-allowed"
-          />
-          <button
-            type="submit"
-            disabled={isLoading || !input.trim()}
-            className="bg-blue-500 text-white border-none rounded-full px-4 py-2 ml-2 cursor-pointer transition-colors duration-200 hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+        {/* Input form - only show when not in history view */}
+        {!showHistory && (
+          <form
+            className="flex p-3 bg-white border-t border-gray-200"
+            onSubmit={handleSubmit}
           >
-            Send
-          </button>
-        </form>
+            <input
+              type="text"
+              value={input}
+              onChange={handleInputChange}
+              placeholder="Type your message..."
+              disabled={isLoading}
+              className="flex-grow px-4 py-2 border border-gray-300 rounded-full text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:bg-gray-100 disabled:cursor-not-allowed"
+            />
+            <button
+              type="submit"
+              disabled={isLoading || !input.trim()}
+              className="bg-blue-500 text-white border-none rounded-full px-4 py-2 ml-2 cursor-pointer transition-colors duration-200 hover:bg-blue-600 disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+            >
+              Send
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

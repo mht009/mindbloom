@@ -21,7 +21,7 @@ const userMgmtRoutes = require("./routes/userMgmtRoutes");
 const meditationRoutes = require("./routes/meditationRoutes");
 const meditationTypeRoutes = require("./routes/meditationTypeRoutes"); // Using ES routes
 const healthRoutes = require("./routes/healthRoutes");
-const chatbotRoutes = require("./routes/chatbotRoutes");
+const chatbotRoutes = require("./routes/chatbotRoutesG");
 
 const app = express();
 

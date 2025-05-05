@@ -15,7 +15,8 @@ async function cleanupOldConversations() {
     // Find conversations older than 30 days
     const oldConversations = await Conversation.findAll({
       where: {
-        updatedAt: {
+        lastMessageAt: {
+          // Using lastMessageAt
           [Op.lt]: thirtyDaysAgo,
         },
       },
