@@ -1,4 +1,5 @@
 // server.js - Main application file
+process.env.TZ = "Asia/Kolkata"; // Set timezone to Asia/Kolkata
 require("dotenv").config(); // Load environment variables first
 const express = require("express");
 const cors = require("cors");
@@ -11,6 +12,9 @@ const {
 const errorHandler = require("./middlewares/errorHandler");
 const chatbotLimiter = require("./middlewares/chatBotLimiter");
 const { seedMeditationTypes } = require("./seeders/esMeditationTypeSeeder");
+
+const cron = require("node-cron");
+const { resetInactiveStreaks } = require("./services/streakService");
 
 // Routes imports
 const authRoutes = require("./routes/authRoutes");
@@ -63,6 +67,8 @@ app.use(errorHandler);
 // Initialize database and services
 async function initializeServices() {
   try {
+    console.log(Date());
+
     // Connect to MySQL
     await initializeDatabase();
     console.log("MySQL connected");
@@ -81,6 +87,11 @@ async function initializeServices() {
     // Schedule data retention cleanup job
     scheduleCleanupJob();
     console.log("Data retention policy (30 days) enforced");
+
+    cron.schedule("0 0 * * *", async () => {
+      console.log("Running streak maintenance");
+      await resetInactiveStreaks();
+    });
 
     return true;
   } catch (err) {

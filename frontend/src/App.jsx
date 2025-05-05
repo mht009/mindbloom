@@ -14,6 +14,8 @@ import StoryDetail from "./pages/StoryDetail";
 import HashtagPage from "./pages/HashtagPage";
 import EditStoryModal from "./components/community/EditStoryModal";
 import MyStories from "./pages/MyStories";
+import MeditationSession from "./pages/MeditationSession";
+import Dashboard from "./pages/Dashboard";
 
 function App() {
   return (
@@ -39,6 +41,11 @@ function App() {
             />
             <Route path="/community/edit/:id" element={<EditStoryModal />} />
             <Route path="/my-stories" element={<MyStories />} />
+            <Route
+              path="/meditation/session/:id"
+              element={<MeditationSession />}
+            />
+            <Route path="/dashboard" element={<Dashboard />} />
           </Route>
         </Route>
       </Routes>

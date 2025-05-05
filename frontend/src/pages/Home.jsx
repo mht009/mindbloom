@@ -120,12 +120,12 @@ const Home = () => {
               with yourself.
             </p>
             <div className="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
-              <Link
+              {/* <Link
                 to="/meditation"
                 className="px-8 py-3 bg-indigo-600 text-white rounded-full shadow-md hover:bg-indigo-700 transition-colors duration-300"
               >
                 Start Meditating
-              </Link>
+              </Link> */}
               <Link
                 to="/explore"
                 className="px-8 py-3 bg-white text-indigo-600 border border-indigo-200 rounded-full shadow-sm hover:bg-indigo-50 transition-colors duration-300"
