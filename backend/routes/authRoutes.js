@@ -2,7 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const { Sequelize } = require("sequelize");
-const User = require("../models/mysql/user");
+const User = require("../models/mysql/User");
 const router = express.Router();
 const redisClient = require("../config/redisClient");
 const esClient = require("../config/esClient");
@@ -222,7 +222,7 @@ router.post("/signup", validateSignupInput, async (req, res) => {
       const user = await User.create({
         name,
         username,
-        email,
+        email: email && email.trim() !== '' ? email : null,
         phone,
         password: hashedPassword,
       });
@@ -360,7 +360,7 @@ router.post("/verify-otp", async (req, res) => {
     const user = await User.create({
       name,
       username,
-      email,
+      email: email && email.trim() !== '' ? email : null,
       phone,
       password: hashedPassword,
     });

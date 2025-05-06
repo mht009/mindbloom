@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext";
-import StoryCard from "../components/community/StoryCard";
+import StoryCard from "../components/community/storyCard";
 import CreateStoryModal from "../components/community/CreateStoryModal";
 import { resolveUsersForItems } from "../utils/userResolver";
 
