@@ -12,21 +12,84 @@ const MeditationSession = () => {
   const [meditationType, setMeditationType] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [tooShortSession, setTooShortSession] = useState(false); // New state for too short sessions
 
-  // Session state
-  const [sessionState, setSessionState] = useState("setup"); // setup, running, paused, notes, completed
-  const [selectedDuration, setSelectedDuration] = useState(5); // Default 5 minutes
-  const [completedDuration, setCompletedDuration] = useState(0);
-  const [remainingTime, setRemainingTime] = useState(0);
+  // Session state with localStorage persistence
+  const [sessionState, setSessionState] = useState(() => {
+    // Try to get stored session state
+    const storedState = localStorage.getItem(`meditation_session_${id}_state`);
+    return storedState || "setup"; // Default to setup if no stored state
+  });
+  
+  const [selectedDuration, setSelectedDuration] = useState(() => {
+    // Try to get stored duration
+    const storedDuration = localStorage.getItem(`meditation_session_${id}_duration`);
+    return storedDuration ? parseInt(storedDuration) : 5; // Default to 5 minutes
+  });
+  
+  const [completedDuration, setCompletedDuration] = useState(() => {
+    const stored = localStorage.getItem(`meditation_session_${id}_completed_duration`);
+    return stored ? parseInt(stored) : 0;
+  });
+  
+  const [remainingTime, setRemainingTime] = useState(() => {
+    const stored = localStorage.getItem(`meditation_session_${id}_remaining_time`);
+    return stored ? parseInt(stored) : 0;
+  });
+  
   const [notes, setNotes] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
   const [sessionStats, setSessionStats] = useState(null);
 
-  // Timer ref for cleanup
+  // Timer refs for cleanup
   const timerRef = useRef(null);
   const startTimeRef = useRef(null);
   const pausedTimeRef = useRef(null);
   const totalPausedTimeRef = useRef(0);
+
+  // Initialize session data from localStorage
+  useEffect(() => {
+    // Only initialize if we're not in setup mode
+    if (sessionState !== "setup") {
+      // Get stored start time
+      const storedStartTime = localStorage.getItem(`meditation_session_${id}_start_time`);
+      if (storedStartTime) {
+        startTimeRef.current = new Date(parseInt(storedStartTime));
+      }
+
+      // Get stored paused time
+      const storedPausedTime = localStorage.getItem(`meditation_session_${id}_paused_time`);
+      if (storedPausedTime) {
+        pausedTimeRef.current = new Date(parseInt(storedPausedTime));
+      }
+
+      // Get stored total paused time
+      const storedTotalPaused = localStorage.getItem(`meditation_session_${id}_total_paused`);
+      if (storedTotalPaused) {
+        totalPausedTimeRef.current = parseInt(storedTotalPaused);
+      }
+    }
+  }, [id, sessionState]);
+
+  // Store session state changes in localStorage
+  useEffect(() => {
+    localStorage.setItem(`meditation_session_${id}_state`, sessionState);
+  }, [id, sessionState]);
+
+  // Store duration changes in localStorage
+  useEffect(() => {
+    localStorage.setItem(`meditation_session_${id}_duration`, selectedDuration);
+  }, [id, selectedDuration]);
+
+  // Store completedDuration changes in localStorage
+  useEffect(() => {
+    localStorage.setItem(`meditation_session_${id}_completed_duration`, completedDuration);
+  }, [id, completedDuration]);
+
+  // Store remainingTime changes in localStorage
+  useEffect(() => {
+    localStorage.setItem(`meditation_session_${id}_remaining_time`, remainingTime);
+  }, [id, remainingTime]);
 
   // Fetch meditation type details
   useEffect(() => {
@@ -57,6 +120,12 @@ const MeditationSession = () => {
   // Timer effect
   useEffect(() => {
     if (sessionState === "running") {
+      // If we don't have a start time, set it now
+      if (!startTimeRef.current) {
+        startTimeRef.current = new Date();
+        localStorage.setItem(`meditation_session_${id}_start_time`, startTimeRef.current.getTime());
+      }
+      
       timerRef.current = setInterval(() => {
         const now = new Date();
         const elapsedSeconds =
@@ -68,6 +137,7 @@ const MeditationSession = () => {
         );
 
         setRemainingTime(timeRemaining);
+        localStorage.setItem(`meditation_session_${id}_remaining_time`, timeRemaining);
 
         if (timeRemaining === 0) {
           handleSessionComplete();
@@ -75,6 +145,12 @@ const MeditationSession = () => {
       }, 1000);
     } else if (sessionState === "paused") {
       clearInterval(timerRef.current);
+      
+      // If we're pausing and don't have a paused time reference yet, set it now
+      if (!pausedTimeRef.current) {
+        pausedTimeRef.current = new Date();
+        localStorage.setItem(`meditation_session_${id}_paused_time`, pausedTimeRef.current.getTime());
+      }
     }
 
     // Cleanup timer on component unmount
@@ -83,25 +159,46 @@ const MeditationSession = () => {
         clearInterval(timerRef.current);
       }
     };
-  }, [sessionState, selectedDuration]);
+  }, [id, sessionState, selectedDuration]);
 
   const startSession = () => {
+    // Reset timer refs
     startTimeRef.current = new Date();
     totalPausedTimeRef.current = 0;
+    pausedTimeRef.current = null;
+    
+    // Reset any previous too short session state
+    setTooShortSession(false);
+    
+    // Store in localStorage
+    localStorage.setItem(`meditation_session_${id}_start_time`, startTimeRef.current.getTime());
+    localStorage.setItem(`meditation_session_${id}_total_paused`, 0);
+    localStorage.removeItem(`meditation_session_${id}_paused_time`);
+    
     setRemainingTime(selectedDuration * 60);
     setSessionState("running");
   };
 
   const pauseSession = () => {
     pausedTimeRef.current = new Date();
+    localStorage.setItem(`meditation_session_${id}_paused_time`, pausedTimeRef.current.getTime());
     setSessionState("paused");
   };
 
   const resumeSession = () => {
-    totalPausedTimeRef.current += Math.floor(
-      (new Date() - pausedTimeRef.current) / 1000
-    );
+    if (pausedTimeRef.current) {
+      const additionalPausedTime = Math.floor(
+        (new Date() - pausedTimeRef.current) / 1000
+      );
+      totalPausedTimeRef.current += additionalPausedTime;
+      
+      // Store updated total paused time
+      localStorage.setItem(`meditation_session_${id}_total_paused`, totalPausedTimeRef.current);
+    }
+    
     pausedTimeRef.current = null;
+    localStorage.removeItem(`meditation_session_${id}_paused_time`);
+    
     setSessionState("running");
   };
 
@@ -109,14 +206,22 @@ const MeditationSession = () => {
     const actualDuration = Math.floor(
       (selectedDuration * 60 - remainingTime) / 60
     );
-
-    if (actualDuration < 5) {
+  
+    // If session is too short (less than 1 minute)
+    if (actualDuration < 1) {
+      // Set too short session state and clear all session storage
+      setTooShortSession(true);
+      clearSessionStorage();
+      setSessionState("setup");
+    } 
+    // If session is between 1 and 5 minutes
+    else if (actualDuration < 5) {
       if (
         window.confirm(
           "We recommend meditating for at least 5 minutes to get benefits. Do you still want to end the session?"
         )
       ) {
-        showNotesDialog(5); // Minimum 5 minutes
+        showNotesDialog(actualDuration);
       }
     } else {
       showNotesDialog(actualDuration);
@@ -124,18 +229,33 @@ const MeditationSession = () => {
   };
 
   const showNotesDialog = (duration) => {
+    // Double-check duration is valid before showing notes
+    if (duration < 1) {
+      setTooShortSession(true);
+      clearSessionStorage();
+      setSessionState("setup");
+      return;
+    }
+    
     setSessionState("notes");
     setCompletedDuration(duration);
   };
 
   const handleSessionComplete = () => {
     clearInterval(timerRef.current);
-    // Use showNotesDialog to show the notes screen
     showNotesDialog(selectedDuration);
   };
 
   const recordSession = async (duration) => {
     try {
+      // Ensure duration is at least 1 minute before attempting to record
+      if (duration < 1) {
+        setTooShortSession(true);
+        clearSessionStorage();
+        setSessionState("setup");
+        return;
+      }
+
       const token = localStorage.getItem("accessToken");
 
       // Make sure meditationType exists before accessing its name property
@@ -159,6 +279,9 @@ const MeditationSession = () => {
         setSessionStats(response.data.data);
         setShowSuccess(true);
 
+        // Clear all session storage since we've completed the session
+        clearSessionStorage();
+
         // Log to check if streak data is coming back correctly
         console.log("Session recorded successfully:", response.data.data);
 
@@ -180,12 +303,33 @@ const MeditationSession = () => {
     }
   };
 
+  // Clear all session-related localStorage items
+  const clearSessionStorage = () => {
+    localStorage.removeItem(`meditation_session_${id}_state`);
+    localStorage.removeItem(`meditation_session_${id}_duration`);
+    localStorage.removeItem(`meditation_session_${id}_completed_duration`);
+    localStorage.removeItem(`meditation_session_${id}_remaining_time`);
+    localStorage.removeItem(`meditation_session_${id}_start_time`);
+    localStorage.removeItem(`meditation_session_${id}_paused_time`);
+    localStorage.removeItem(`meditation_session_${id}_total_paused`);
+  };
+
   const formatTime = (totalSeconds) => {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes.toString().padStart(2, "0")}:${seconds
       .toString()
       .padStart(2, "0")}`;
+  };
+
+  // Reset button to reset the session state (for debugging or when stuck)
+  const resetSession = () => {
+    clearSessionStorage();
+    setSessionState("setup");
+    setRemainingTime(0);
+    setCompletedDuration(0);
+    setTooShortSession(false);
+    window.location.reload(); // Force reload the page
   };
 
   if (loading) {
@@ -204,7 +348,10 @@ const MeditationSession = () => {
           <h2 className="text-2xl font-semibold text-red-600 mb-4">Error</h2>
           <p className="text-gray-700 mb-6">{error}</p>
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => {
+              setError(null); 
+              navigate(-1);
+            }}
             className="inline-block px-5 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
           >
             Go Back
@@ -229,6 +376,30 @@ const MeditationSession = () => {
             className="inline-block px-5 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
           >
             Back to Explore
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Display message for sessions that are too short
+  if (tooShortSession) {
+    return (
+      <div className="min-h-screen flex flex-col justify-center items-center bg-indigo-50 p-4">
+        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full">
+          <h2 className="text-2xl font-semibold text-amber-600 mb-4">Session Too Short</h2>
+          <p className="text-gray-700 mb-6">
+            Your meditation session was less than 1 minute long. Sessions need to be at least 1 minute
+            to be recorded. Please try again and meditate for at least 1 minute.
+          </p>
+          <button
+            onClick={() => {
+              setTooShortSession(false);
+              setSessionState("setup");
+            }}
+            className="inline-block px-5 py-3 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
+          >
+            Try Again
           </button>
         </div>
       </div>
@@ -311,7 +482,7 @@ const MeditationSession = () => {
                             </span>
                             <div>
                               <p className="font-medium text-gray-800">
-                                {achievement.title}
+                                {achievement.name}
                               </p>
                               <p className="text-sm text-gray-600">
                                 {achievement.description}
@@ -348,6 +519,18 @@ const MeditationSession = () => {
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 to-white py-12">
       <div className="container mx-auto px-4 max-w-2xl">
+        {/* Session Reset Button (Only visible during running or paused sessions) */}
+        {(sessionState === "running" || sessionState === "paused") && (
+          <div className="mb-4 text-right">
+            <button
+              onClick={resetSession}
+              className="text-xs text-gray-500 hover:text-red-500 transition-colors"
+            >
+              Reset Session
+            </button>
+          </div>
+        )}
+
         {/* Session Setup */}
         {sessionState === "setup" && (
           <div className="bg-white rounded-xl shadow-md overflow-hidden mb-8">
