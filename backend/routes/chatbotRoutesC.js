@@ -15,6 +15,7 @@ const { Conversation } = require("../models/mysql/Conversations");
 const { Message } = require("../models/mysql/Messages");
 const User = require("../models/mysql/User");
 const { Op } = require("sequelize");
+const { sequelize } = require("../config/mysql"); // Import sequelize for transactions
 const anthropic = require("../config/claudeClient");
 
 // Meditation techniques library
@@ -96,6 +97,87 @@ Always show empathy, respect, and encouragement. Make the user feel heard and un
 `;
 
 /**
+ * Generate a detailed system prompt with meditation techniques
+ * @param {Object} user - User object with profile information
+ * @returns {String} - Complete system prompt with user info and techniques
+ */
+const generateEnhancedSystemPrompt = (user) => {
+  let enhancedPrompt = MEDITATION_SYSTEM_PROMPT;
+
+  // Add user profile information if available
+  if (user) {
+    enhancedPrompt += `\n\nUser Profile:
+- Name: ${user.name}
+- Meditation Streak: ${user.streakCount} days
+- Total Meditation Time: ${user.totalMinutes} minutes\n\n`;
+  }
+
+  // Add meditation techniques library
+  enhancedPrompt += `\n\n**DETAILED MEDITATION TECHNIQUES REFERENCE**\n\n`;
+
+  // Add each meditation technique with its full details
+  Object.keys(MEDITATION_TECHNIQUES).forEach((techniqueKey) => {
+    const technique = MEDITATION_TECHNIQUES[techniqueKey];
+
+    enhancedPrompt += `**${technique.name}**:\n`;
+    enhancedPrompt += `- **Description**: ${technique.description}\n`;
+    enhancedPrompt += `- **Best for**: ${technique.best_for.join(", ")}\n`;
+    enhancedPrompt += `- **Difficulty**: ${technique.difficulty}\n`;
+
+    // Add recommended duration based on experience
+    enhancedPrompt += `- **Recommended Duration**:\n`;
+    Object.entries(technique.recommended_duration).forEach(
+      ([level, duration]) => {
+        enhancedPrompt += `  - ${level}: ${duration}\n`;
+      }
+    );
+
+    // Add instructions
+    enhancedPrompt += `- **Instructions**:\n`;
+    technique.instructions.forEach((step, index) => {
+      enhancedPrompt += `  ${index + 1}. ${step}\n`;
+    });
+
+    // Add benefits if available
+    if (technique.benefits && technique.benefits.length > 0) {
+      enhancedPrompt += `- **Benefits**:\n`;
+      technique.benefits.forEach((benefit) => {
+        enhancedPrompt += `  - ${benefit}\n`;
+      });
+    }
+
+    enhancedPrompt += `\n`;
+  });
+
+  return enhancedPrompt;
+};
+
+/**
+ * @route   GET /api/chatbot/status
+ * @desc    Check if user has an active conversation without creating one
+ * @access  Private
+ */
+router.get(
+  "/status",
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const { userId } = req.user;
+
+    // Check if there's an active conversation
+    const activeConversation = await Conversation.findOne({
+      where: { userId, isActive: true },
+      order: [["createdAt", "DESC"]],
+      attributes: ["id", "title", "createdAt"],
+    });
+
+    return res.json({
+      hasActiveConversation: !!activeConversation,
+      activeConversation: activeConversation || null
+    });
+  })
+);
+
+/**
  * @route   POST /api/chatbot/message
  * @desc    Send a message to the chatbot and get a response
  * @access  Private
@@ -104,7 +186,7 @@ router.post(
   "/message",
   verifyToken,
   asyncHandler(async (req, res) => {
-    const { message, conversationId } = req.body;
+    const { message, conversationId, createNewConversation } = req.body;
     const { userId } = req.user;
 
     if (!message) {
@@ -124,18 +206,32 @@ router.post(
         return res.status(404).json({ message: "Conversation not found" });
       }
     } else {
-      // Find active conversation or create new one
+      // Find active conversation, don't create a new one automatically
       conversation = await Conversation.findOne({
         where: { userId, isActive: true },
         order: [["createdAt", "DESC"]],
       });
 
-      if (!conversation) {
+      // Only create a new conversation if explicitly requested
+      if (!conversation && createNewConversation === true) {
         conversation = await Conversation.create({
           userId,
           isActive: true,
           title: "Meditation Session", // Default title
           lastMessageAt: new Date(),
+        });
+        
+        // Add welcome message to the new conversation
+        await Message.create({
+          conversationId: conversation.id,
+          content: "Welcome to Mindbloom Meditation! I'm here to help you discover the right meditation practice for your needs. Would you like to take a quick assessment to find the best meditation type for you?",
+          type: "assistant",
+        });
+      } else if (!conversation) {
+        // No active conversation found and not instructed to create one
+        return res.status(404).json({ 
+          message: "No active conversation found. Please start a new conversation first.",
+          noActiveConversation: true
         });
       }
     }
@@ -156,53 +252,50 @@ router.post(
       order: [["createdAt", "ASC"]],
     });
 
-    // Format messages for Claude API
-    const formattedMessages = messages.map((msg) => ({
-      role: msg.type,
-      content: msg.content,
-    }));
+    try {
+      // Format messages for Claude API
+      const formattedMessages = messages.map((msg) => ({
+        role: msg.type === "user" ? "user" : "assistant", // Convert "assistant" to match Claude API expectations
+        content: msg.content,
+      }));
 
-    // Get user profile for better personalization
-    const user = await User.findByPk(userId, {
-      attributes: ["name", "streakCount", "totalMinutes"],
-    });
+      // Get user profile for better personalization
+      const user = await User.findByPk(userId, {
+        attributes: ["name", "streakCount", "totalMinutes"],
+      });
 
-    // Enhanced system prompt with user profile
-    let enhancedSystemPrompt = MEDITATION_SYSTEM_PROMPT;
+      // Generate enhanced prompt with meditation techniques
+      const enhancedSystemPrompt = generateEnhancedSystemPrompt(user);
 
-    if (user) {
-      enhancedSystemPrompt += `\n\nUser Profile:
-- Name: ${user.name}
-- Meditation Streak: ${user.streakCount} days
-- Total Meditation Time: ${user.totalMinutes} minutes`;
+      // Call Claude API
+      const response = await anthropic.messages.create({
+        model: "claude-3-7-sonnet-20250219",
+        system: enhancedSystemPrompt,
+        max_tokens: 1000,
+        messages: formattedMessages,
+      });
+
+      // Extract Claude's response
+      const assistantMessage = response.content[0].text;
+
+      // Save assistant response to database
+      await Message.create({
+        conversationId: conversation.id,
+        content: assistantMessage,
+        type: "assistant",
+      });
+
+      return res.json({
+        message: assistantMessage,
+        conversationId: conversation.id,
+      });
+    } catch (error) {
+      console.error("Error calling Claude API:", error);
+      return res.status(500).json({
+        message: "Error generating response from AI",
+        error: error.message,
+      });
     }
-
-    // Add meditation techniques library reference
-    enhancedSystemPrompt += `\n\nYou have access to the following meditation techniques library:
-${JSON.stringify(MEDITATION_TECHNIQUES, null, 2)}`;
-
-    // Call Claude API
-    const response = await anthropic.messages.create({
-      model: "claude-3-7-sonnet-20250219",
-      system: enhancedSystemPrompt,
-      max_tokens: 1000,
-      messages: formattedMessages,
-    });
-
-    // Extract Claude's response
-    const assistantMessage = response.content[0].text;
-
-    // Save assistant response to database
-    await Message.create({
-      conversationId: conversation.id,
-      content: assistantMessage,
-      type: "assistant",
-    });
-
-    return res.json({
-      message: assistantMessage,
-      conversationId: conversation.id,
-    });
   })
 );
 
@@ -285,35 +378,61 @@ router.post(
   verifyToken,
   asyncHandler(async (req, res) => {
     const { userId } = req.user;
+    let conversation;
 
-    // Set all existing conversations to inactive
-    await Conversation.update(
-      { isActive: false },
-      { where: { userId, isActive: true } }
-    );
+    // Use a transaction to prevent deadlocks
+    const transaction = await sequelize.transaction();
 
-    // Create a new conversation
-    const conversation = await Conversation.create({
-      userId,
-      isActive: true,
-      title: "Meditation Session",
-      lastMessageAt: new Date(),
-    });
+    try {
+      // Set all existing conversations to inactive
+      await Conversation.update(
+        { isActive: false },
+        {
+          where: { userId, isActive: true },
+          transaction,
+        }
+      );
 
-    // Add welcome message
-    const welcomeMessage =
-      "Welcome to Mindbloom Meditation! I'm here to help you discover the right meditation practice for your needs. Would you like to take a quick assessment to find the best meditation type for you?";
+      // Create a new conversation
+      conversation = await Conversation.create(
+        {
+          userId,
+          isActive: true,
+          title: "Meditation Session",
+          lastMessageAt: new Date(),
+        },
+        { transaction }
+      );
 
-    await Message.create({
-      conversationId: conversation.id,
-      content: welcomeMessage,
-      type: "assistant",
-    });
+      // Add welcome message
+      const welcomeMessage =
+        "Welcome to Mindbloom Meditation! I'm here to help you discover the right meditation practice for your needs. Would you like to take a quick assessment to find the best meditation type for you?";
 
-    return res.json({
-      conversation,
-      message: welcomeMessage,
-    });
+      await Message.create(
+        {
+          conversationId: conversation.id,
+          content: welcomeMessage,
+          type: "assistant",
+        },
+        { transaction }
+      );
+
+      // Commit the transaction
+      await transaction.commit();
+
+      return res.json({
+        conversation,
+        message: welcomeMessage,
+      });
+    } catch (error) {
+      // If anything goes wrong, roll back the transaction
+      await transaction.rollback();
+      console.error("Error creating new conversation:", error);
+      return res.status(500).json({
+        message: "Error creating new conversation",
+        error: error.message,
+      });
+    }
   })
 );
 
@@ -330,30 +449,54 @@ router.put(
     const { userId } = req.user;
     const { title, isActive } = req.body;
 
-    const conversation = await Conversation.findOne({
-      where: { id: conversationId, userId },
-    });
+    // Use a transaction
+    const transaction = await sequelize.transaction();
 
-    if (!conversation) {
-      return res.status(404).json({ message: "Conversation not found" });
-    }
+    try {
+      const conversation = await Conversation.findOne({
+        where: { id: conversationId, userId },
+        transaction,
+      });
 
-    // If setting this conversation to active, set all others to inactive
-    if (isActive) {
-      await Conversation.update(
-        { isActive: false },
-        { where: { userId, isActive: true } }
+      if (!conversation) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+
+      // If setting this conversation to active, set all others to inactive
+      if (isActive) {
+        await Conversation.update(
+          { isActive: false },
+          {
+            where: { userId, isActive: true },
+            transaction,
+          }
+        );
+      }
+
+      // Update the conversation
+      await conversation.update(
+        {
+          title: title || conversation.title,
+          isActive: isActive !== undefined ? isActive : conversation.isActive,
+          lastMessageAt: new Date(),
+        },
+        { transaction }
       );
+
+      // Commit the transaction
+      await transaction.commit();
+
+      return res.json(conversation);
+    } catch (error) {
+      // If anything goes wrong, roll back the transaction
+      await transaction.rollback();
+      console.error("Error updating conversation:", error);
+      return res.status(500).json({
+        message: "Error updating conversation",
+        error: error.message,
+      });
     }
-
-    // Update the conversation
-    await conversation.update({
-      title: title || conversation.title,
-      isActive: isActive !== undefined ? isActive : conversation.isActive,
-      lastMessageAt: new Date(),
-    });
-
-    return res.json(conversation);
   })
 );
 
@@ -369,23 +512,42 @@ router.delete(
     const conversationId = req.params.id;
     const { userId } = req.user;
 
-    const conversation = await Conversation.findOne({
-      where: { id: conversationId, userId },
-    });
+    // Use a transaction
+    const transaction = await sequelize.transaction();
 
-    if (!conversation) {
-      return res.status(404).json({ message: "Conversation not found" });
+    try {
+      const conversation = await Conversation.findOne({
+        where: { id: conversationId, userId },
+        transaction,
+      });
+
+      if (!conversation) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+
+      // Delete all messages in the conversation
+      await Message.destroy({
+        where: { conversationId },
+        transaction,
+      });
+
+      // Delete the conversation
+      await conversation.destroy({ transaction });
+
+      // Commit the transaction
+      await transaction.commit();
+
+      return res.json({ message: "Conversation deleted successfully" });
+    } catch (error) {
+      // If anything goes wrong, roll back the transaction
+      await transaction.rollback();
+      console.error("Error deleting conversation:", error);
+      return res.status(500).json({
+        message: "Error deleting conversation",
+        error: error.message,
+      });
     }
-
-    // Delete all messages in the conversation
-    await Message.destroy({
-      where: { conversationId },
-    });
-
-    // Delete the conversation
-    await conversation.destroy();
-
-    return res.json({ message: "Conversation deleted successfully" });
   })
 );
 
