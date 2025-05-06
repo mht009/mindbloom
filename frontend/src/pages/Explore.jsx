@@ -240,15 +240,23 @@ const Explore = () => {
                     </div>
                     <div className="flex items-center justify-center h-full">
                       <span className="text-5xl">
-                        {index === 0
+                        {index % 9 === 0
                           ? "🧠"
-                          : index === 1
+                          : index % 9 === 1
                           ? "❤️"
-                          : index === 2
+                          : index % 9 === 2
                           ? "✨"
-                          : index === 3
+                          : index % 9 === 3
                           ? "🧘"
-                          : "🌊"}
+                          : index % 9 === 4
+                          ? "🌼"
+                          : index % 9 === 5
+                          ? "🍂" 
+                          : index % 9 === 6
+                          ? "⛰️"
+                          : index % 9 === 7
+                          ? "🪷"
+                          : "🌿"}
                       </span>
                     </div>
                   </div>
