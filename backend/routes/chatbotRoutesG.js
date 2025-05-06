@@ -154,6 +154,31 @@ const generateEnhancedSystemPrompt = (user) => {
 };
 
 /**
+ * @route   GET /api/chatbot/status
+ * @desc    Check if user has an active conversation without creating one
+ * @access  Private
+ */
+router.get(
+  "/status",
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const { userId } = req.user;
+
+    // Check if there's an active conversation
+    const activeConversation = await Conversation.findOne({
+      where: { userId, isActive: true },
+      order: [["createdAt", "DESC"]],
+      attributes: ["id", "title", "createdAt"],
+    });
+
+    return res.json({
+      hasActiveConversation: !!activeConversation,
+      activeConversation: activeConversation || null
+    });
+  })
+);
+
+/**
  * @route   POST /api/chatbot/message
  * @desc    Send a message to the chatbot and get a response
  * @access  Private
@@ -162,7 +187,7 @@ router.post(
   "/message",
   verifyToken,
   asyncHandler(async (req, res) => {
-    const { message, conversationId } = req.body;
+    const { message, conversationId, createNewConversation } = req.body;
     const { userId } = req.user;
 
     if (!message) {
@@ -182,18 +207,32 @@ router.post(
         return res.status(404).json({ message: "Conversation not found" });
       }
     } else {
-      // Find active conversation or create new one
+      // Find active conversation, don't create a new one automatically
       conversation = await Conversation.findOne({
         where: { userId, isActive: true },
         order: [["createdAt", "DESC"]],
       });
 
-      if (!conversation) {
+      // Only create a new conversation if explicitly requested
+      if (!conversation && createNewConversation === true) {
         conversation = await Conversation.create({
           userId,
           isActive: true,
           title: "Meditation Session", // Default title
           lastMessageAt: new Date(),
+        });
+        
+        // Add welcome message to the new conversation
+        await Message.create({
+          conversationId: conversation.id,
+          content: "Welcome to Mindbloom Meditation! I'm here to help you discover the right meditation practice for your needs. Would you like to take a quick assessment to find the best meditation type for you?",
+          type: "assistant",
+        });
+      } else if (!conversation) {
+        // No active conversation found and not instructed to create one
+        return res.status(404).json({ 
+          message: "No active conversation found. Please start a new conversation first.",
+          noActiveConversation: true
         });
       }
     }

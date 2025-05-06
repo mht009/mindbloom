@@ -14,37 +14,44 @@ const ChatbotWidget = () => {
   const messagesEndRef = useRef(null);
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const [shouldWiggle, setShouldWiggle] = useState(false);
+  const [hasActiveConversation, setHasActiveConversation] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(true);
+  
+  // Create a ref for the input element to maintain focus
+  const inputRef = useRef(null);
 
-  // Fetch or start a new conversation on component mount
+  // Check for active conversation on component mount instead of creating a new one
   useEffect(() => {
-    const startNewConversation = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const response = await axios.post(
-          "/api/chatbot/conversation/new",
-          {},
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        setConversationId(response.data.conversation.id);
-        setMessages([
-          {
-            type: "assistant",
-            content: response.data.message,
-          },
-        ]);
-      } catch (error) {
-        console.error("Error starting conversation:", error);
-      }
-    };
-
-    startNewConversation();
+    checkChatbotStatus();
     fetchConversations();
   }, []);
+
+  // Check if user has an active conversation without creating one
+  const checkChatbotStatus = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get("/api/chatbot/status", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.data.hasActiveConversation && response.data.activeConversation) {
+        setHasActiveConversation(true);
+        setConversationId(response.data.activeConversation.id);
+        
+        // Only load conversation messages if chat is opened
+        if (isOpen) {
+          loadConversation(response.data.activeConversation.id);
+        }
+      } else {
+        setHasActiveConversation(false);
+        setShowWelcome(true);
+      }
+    } catch (error) {
+      console.error("Error checking chatbot status:", error);
+    }
+  };
 
   // Fetch all conversations for history
   const fetchConversations = async () => {
@@ -79,6 +86,8 @@ const ChatbotWidget = () => {
           content: msg.content,
         }))
       );
+      setHasActiveConversation(true);
+      setShowWelcome(false);
 
       // Set this conversation as active
       await axios.put(
@@ -96,6 +105,12 @@ const ChatbotWidget = () => {
       console.error("Error loading conversation:", error);
     } finally {
       setIsLoading(false);
+      // Focus input after loading conversation
+      setTimeout(() => {
+        if (inputRef.current && !showHistory) {
+          inputRef.current.focus();
+        }
+      }, 100);
     }
   };
 
@@ -113,25 +128,12 @@ const ChatbotWidget = () => {
       // Refresh conversation list
       fetchConversations();
 
-      // If we deleted the current conversation, start a new one
+      // If we deleted the current conversation, reset state
       if (convId === conversationId) {
-        const response = await axios.post(
-          "/api/chatbot/conversation/new",
-          {},
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-
-        setConversationId(response.data.conversation.id);
-        setMessages([
-          {
-            type: "assistant",
-            content: response.data.message,
-          },
-        ]);
+        setConversationId(null);
+        setMessages([]);
+        setHasActiveConversation(false);
+        setShowWelcome(true);
       }
     } catch (error) {
       console.error("Error deleting conversation:", error);
@@ -160,6 +162,8 @@ const ChatbotWidget = () => {
           content: response.data.message,
         },
       ]);
+      setHasActiveConversation(true);
+      setShowWelcome(false);
 
       // Refresh conversation list
       fetchConversations();
@@ -167,6 +171,12 @@ const ChatbotWidget = () => {
       console.error("Error starting new conversation:", error);
     } finally {
       setIsLoading(false);
+      // Focus input after starting new conversation
+      setTimeout(() => {
+        if (inputRef.current && !showHistory) {
+          inputRef.current.focus();
+        }
+      }, 100);
     }
   };
 
@@ -189,14 +199,35 @@ const ChatbotWidget = () => {
   // Add wiggle animation to catch user attention after 2 minutes of inactivity
   useEffect(() => {
     const wiggleTimer = setTimeout(() => {
-      if (!isOpen && messages.length <= 1) {
+      if (!isOpen && !hasActiveConversation) {
         setShouldWiggle(true);
         setTimeout(() => setShouldWiggle(false), 1500);
       }
     }, 120000); // 2 minutes
 
     return () => clearTimeout(wiggleTimer);
-  }, [isOpen, messages]);
+  }, [isOpen, hasActiveConversation]);
+
+  // When chat is opened, load conversation if we have an ID but no messages
+  useEffect(() => {
+    if (isOpen && conversationId && messages.length === 0) {
+      loadConversation(conversationId);
+    }
+    
+    // Focus input field when chat is opened
+    if (isOpen && !showHistory && inputRef.current) {
+      setTimeout(() => {
+        inputRef.current.focus();
+      }, 300); // Short delay to allow animation to complete
+    }
+  }, [isOpen, conversationId, messages.length, showHistory]);
+
+  // Refocus input after sending a message
+  useEffect(() => {
+    if (!isLoading && inputRef.current && !showHistory && isOpen) {
+      inputRef.current.focus();
+    }
+  }, [isLoading, showHistory, isOpen]);
 
   const toggleChat = () => {
     setIsOpen(!isOpen);
@@ -207,6 +238,13 @@ const ChatbotWidget = () => {
     // Fetch latest conversations when opening history
     if (!showHistory) {
       fetchConversations();
+    } else {
+      // When closing history, focus the input
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
     }
   };
 
@@ -231,12 +269,21 @@ const ChatbotWidget = () => {
 
     try {
       const token = localStorage.getItem("token");
+      
+      // Prepare request data with createNewConversation flag if needed
+      const requestData = {
+        message: userMessage,
+        conversationId: conversationId,
+      };
+
+      // If no active conversation, include createNewConversation flag
+      if (!hasActiveConversation) {
+        requestData.createNewConversation = true;
+      }
+
       const response = await axios.post(
         "/api/chatbot/message",
-        {
-          message: userMessage,
-          conversationId: conversationId,
-        },
+        requestData,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -251,23 +298,45 @@ const ChatbotWidget = () => {
       ]);
 
       // Update conversation ID if needed
-      if (response.data.conversationId && !conversationId) {
+      if (response.data.conversationId) {
         setConversationId(response.data.conversationId);
+        setHasActiveConversation(true);
+        setShowWelcome(false);
       }
 
       // Refresh conversation list to update the preview
       fetchConversations();
     } catch (error) {
       console.error("Error sending message:", error);
-      setMessages((prevMessages) => [
-        ...prevMessages,
-        {
-          type: "assistant",
-          content: "Sorry, I encountered an error. Please try again later.",
-        },
-      ]);
+      
+      // Check if the error is due to no active conversation
+      if (error.response?.data?.noActiveConversation) {
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          {
+            type: "assistant",
+            content: "It seems you don't have an active conversation. Let me start a new one for you.",
+          },
+        ]);
+        startNewConversation();
+      } else {
+        setMessages((prevMessages) => [
+          ...prevMessages,
+          {
+            type: "assistant",
+            content: "Sorry, I encountered an error. Please try again later.",
+          },
+        ]);
+      }
     } finally {
       setIsLoading(false);
+      
+      // Refocus input after message is sent
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 100);
     }
   };
 
@@ -280,6 +349,28 @@ const ChatbotWidget = () => {
       date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     );
   };
+
+  // Handle keyboard shortcuts
+  const handleKeyDown = (e) => {
+    // Focus chat input when user presses / key outside of input
+    if (e.key === '/' && document.activeElement !== inputRef.current && isOpen && !showHistory) {
+      e.preventDefault();
+      inputRef.current.focus();
+    }
+    
+    // ESC key to close chat
+    if (e.key === 'Escape' && isOpen) {
+      toggleChat();
+    }
+  };
+
+  // Add global keyboard listener
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, showHistory]);
 
   // Custom component to render markdown messages with proper styling
   const MarkdownMessage = ({ content, type }) => {
@@ -332,6 +423,25 @@ const ChatbotWidget = () => {
       </div>
     );
   };
+
+  const WelcomeScreen = () => (
+    <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-gray-50">
+      <span className="text-4xl mb-4">🧘</span>
+      <h3 className="text-xl font-semibold text-gray-800 mb-3">
+        Mindbloom Meditation
+      </h3>
+      <p className="text-gray-600 mb-6 max-w-xs">
+        Your personal meditation guide to help you find the right practice for your needs.
+      </p>
+      <button
+        className="bg-blue-500 text-white rounded-full px-6 py-2 shadow-md hover:bg-blue-600 transition-colors"
+        onClick={startNewConversation}
+        disabled={isLoading}
+      >
+        {isLoading ? "Starting..." : "Start Meditating"}
+      </button>
+    </div>
+  );
 
   return (
     <div className="fixed bottom-8 right-8 z-50 font-sans">
@@ -430,30 +540,36 @@ const ChatbotWidget = () => {
         ) : (
           /* Messages area */
           <div className="flex-grow p-4 overflow-y-auto flex flex-col gap-3 bg-gray-50">
-            {messages.map((message, index) => (
-              <MarkdownMessage
-                key={index}
-                content={message.content}
-                type={message.type}
-              />
-            ))}
-            {isLoading && (
-              <div className="p-3 rounded-2xl max-w-[85%] bg-gray-200 text-gray-800 self-start rounded-bl-sm">
-                <div className="flex space-x-1">
-                  <div
-                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  ></div>
-                  <div
-                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  ></div>
-                  <div
-                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  ></div>
-                </div>
-              </div>
+            {showWelcome && messages.length === 0 ? (
+              <WelcomeScreen />
+            ) : (
+              <>
+                {messages.map((message, index) => (
+                  <MarkdownMessage
+                    key={index}
+                    content={message.content}
+                    type={message.type}
+                  />
+                ))}
+                {isLoading && (
+                  <div className="p-3 rounded-2xl max-w-[85%] bg-gray-200 text-gray-800 self-start rounded-bl-sm">
+                    <div className="flex space-x-1">
+                      <div
+                        className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                        style={{ animationDelay: "0ms" }}
+                      ></div>
+                      <div
+                        className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                        style={{ animationDelay: "150ms" }}
+                      ></div>
+                      <div
+                        className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                        style={{ animationDelay: "300ms" }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
             <div ref={messagesEndRef} />
           </div>
@@ -469,9 +585,10 @@ const ChatbotWidget = () => {
               type="text"
               value={input}
               onChange={handleInputChange}
-              placeholder="Type your message..."
+              placeholder="Type your message... (or press '/' to focus)"
               disabled={isLoading}
               className="flex-grow px-4 py-2 border border-gray-300 rounded-full text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 disabled:bg-gray-100 disabled:cursor-not-allowed"
+              ref={inputRef}
             />
             <button
               type="submit"
