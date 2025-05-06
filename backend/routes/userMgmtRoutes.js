@@ -1,5 +1,6 @@
 const express = require("express");
 const { sequelize } = require("../config/mysql");
+const { Op } = require("sequelize");
 const esClient = require("../config/esClient");
 const redisClient = require("../config/redisClient");
 const verifyToken = require("../middlewares/verifyToken");
@@ -343,7 +344,7 @@ router.get("/users/stats", [verifyToken, isAdmin], async (req, res) => {
     const newUsers = await User.count({
       where: {
         createdAt: {
-          [sequelize.Op.gte]: sevenDaysAgo,
+          [Op.gte]: sevenDaysAgo,
         },
       },
     });
@@ -703,50 +704,221 @@ router.post(
   }
 );
 
-// Helper function to create user index
-async function createUserIndex() {
+// Add these routes to your existing userMgmtRoutes.js file
+
+// Get user stories with pagination
+router.get("/users/:id/stories", [verifyToken, isAdmin], async (req, res) => {
+  const { id } = req.params;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = parseInt(req.query.offset) || 0;
+
   try {
-    const response = await esClient.indices.create({
-      index: "users",
+    // First verify if the user exists
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Search for stories in Elasticsearch
+    const storiesResponse = await esClient.search({
+      index: "stories",
       body: {
-        settings: {
-          analysis: {
-            analyzer: {
-              username_analyzer: {
-                type: "custom",
-                tokenizer: "keyword",
-                filter: ["lowercase"],
-              },
-            },
-          },
+        query: {
+          term: { userId: id.toString() }
         },
-        mappings: {
-          properties: {
-            userId: { type: "keyword" },
-            username: {
-              type: "text",
-              analyzer: "username_analyzer",
-              fields: {
-                keyword: {
-                  type: "keyword",
-                  normalizer: "lowercase",
-                },
-              },
-            },
-            displayName: { type: "text" },
-            email: { type: "keyword" },
-            role: { type: "keyword" },
-            createdAt: { type: "date" },
-            updatedAt: { type: "date" },
-          },
-        },
-      },
+        sort: [{ createdAt: { order: "desc" } }],
+        from: offset,
+        size: limit
+      }
     });
-    console.log("User index created successfully:", response);
+
+    // Handle different Elasticsearch client response formats
+    let hits = [];
+    if (storiesResponse.body && storiesResponse.body.hits && storiesResponse.body.hits.hits) {
+      hits = storiesResponse.body.hits.hits;
+    } else if (storiesResponse.hits && storiesResponse.hits.hits) {
+      hits = storiesResponse.hits.hits;
+    }
+
+    // Format stories
+    const stories = hits.map(hit => ({
+      id: hit._id,
+      ...hit._source,
+      // Add additional story metadata if needed
+    }));
+
+    // Get total count
+    const countResponse = await esClient.count({
+      index: "stories",
+      body: {
+        query: {
+          term: { userId: id.toString() }
+        }
+      }
+    });
+
+    const total = countResponse.count || 
+                  countResponse.body?.count || 
+                  hits.length;
+
+    res.status(200).json({
+      stories,
+      metadata: {
+        total,
+        limit,
+        offset
+      }
+    });
   } catch (error) {
-    console.error("Error creating user index:", error);
-    throw error;
+    console.error("Error fetching user stories:", {
+      message: error.message,
+      stack: error.stack,
+      metadata: { userId: id }
+    });
+    res.status(500).json({ message: "Failed to retrieve user stories" });
   }
-}
+});
+
+// Get user comments with pagination
+router.get("/users/:id/comments", [verifyToken, isAdmin], async (req, res) => {
+  const { id } = req.params;
+  const limit = parseInt(req.query.limit) || 10;
+  const offset = parseInt(req.query.offset) || 0;
+
+  try {
+    // First verify if the user exists
+    const user = await User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Search for comments in Elasticsearch
+    const commentsResponse = await esClient.search({
+      index: "comments",
+      body: {
+        query: {
+          term: { userId: id.toString() }
+        },
+        sort: [{ createdAt: { order: "desc" } }],
+        from: offset,
+        size: limit
+      }
+    });
+
+    // Handle different Elasticsearch client response formats
+    let hits = [];
+    if (commentsResponse.body && commentsResponse.body.hits && commentsResponse.body.hits.hits) {
+      hits = commentsResponse.body.hits.hits;
+    } else if (commentsResponse.hits && commentsResponse.hits.hits) {
+      hits = commentsResponse.hits.hits;
+    }
+
+    // Format comments and fetch associated story titles
+    const comments = await Promise.all(hits.map(async hit => {
+      const comment = {
+        id: hit._id,
+        ...hit._source
+      };
+
+      // Try to fetch the story title if possible
+      if (comment.storyId) {
+        try {
+          const storyResponse = await esClient.get({
+            index: "stories",
+            id: comment.storyId
+          });
+          
+          const storySource = storyResponse.body?._source || storyResponse._source;
+          if (storySource) {
+            comment.storyTitle = storySource.title || "Unknown Story";
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch story title for comment ${comment.id}: ${err.message}`);
+          comment.storyTitle = "Unknown Story";
+        }
+      }
+
+      return comment;
+    }));
+
+    // Get total count
+    const countResponse = await esClient.count({
+      index: "comments",
+      body: {
+        query: {
+          term: { userId: id.toString() }
+        }
+      }
+    });
+
+    const total = countResponse.count || 
+                  countResponse.body?.count || 
+                  hits.length;
+
+    res.status(200).json({
+      comments,
+      metadata: {
+        total,
+        limit,
+        offset
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching user comments:", {
+      message: error.message,
+      stack: error.stack,
+      metadata: { userId: id }
+    });
+    res.status(500).json({ message: "Failed to retrieve user comments" });
+  }
+});
+
+// // Helper function to create user index
+// async function createUserIndex() {
+//   try {
+//     const response = await esClient.indices.create({
+//       index: "users",
+//       body: {
+//         settings: {
+//           analysis: {
+//             analyzer: {
+//               username_analyzer: {
+//                 type: "custom",
+//                 tokenizer: "keyword",
+//                 filter: ["lowercase"],
+//               },
+//             },
+//           },
+//         },
+//         mappings: {
+//           properties: {
+//             userId: { type: "keyword" },
+//             username: {
+//               type: "text",
+//               analyzer: "username_analyzer",
+//               fields: {
+//                 keyword: {
+//                   type: "keyword",
+//                   normalizer: "lowercase",
+//                 },
+//               },
+//             },
+//             displayName: { type: "text" },
+//             email: { type: "keyword" },
+//             role: { type: "keyword" },
+//             createdAt: { type: "date" },
+//             updatedAt: { type: "date" },
+//           },
+//         },
+//       },
+//     });
+//     console.log("User index created successfully:", response);
+//   } catch (error) {
+//     console.error("Error creating user index:", error);
+//     throw error;
+//   }
+// }
+
+
 
 module.exports = router;

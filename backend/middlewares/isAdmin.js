@@ -1,33 +1,35 @@
-// middlewares/isAdmin.js
+// backend/middlewares/isAdmin.js
+const User = require("../models/mysql/User");
 
-/**
- * Middleware to check if the authenticated user has admin role
- * @param {Object} req - Express request object
- * @param {Object} res - Express response object
- * @param {Function} next - Express next middleware function
- */
-function isAdmin(req, res, next) {
-  // This middleware should be used after the authenticate middleware,
-  // which sets req.user with the authenticated user's information
+const isAdmin = async (req, res, next) => {
+  try {
+    // Get user ID from the JWT verification middleware
+    const userId = req.user.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
 
-  // Check if user exists in request object
-  if (!req.user) {
-    return res.status(401).json({
-      success: false,
-      message: "Authentication required",
-    });
+    // Find user in database
+    const user = await User.findByPk(userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Check if user has admin role
+    if (user.role !== "admin") {
+      return res.status(403).json({ 
+        message: "Access denied. Admin privileges required" 
+      });
+    }
+
+    // If user is admin, proceed
+    next();
+  } catch (error) {
+    console.error("Admin authorization error:", error);
+    res.status(500).json({ message: "Server error during admin authorization" });
   }
-
-  // Check if user has admin role
-  if (req.user.role !== "admin") {
-    return res.status(403).json({
-      success: false,
-      message: "Admin access required",
-    });
-  }
-
-  // If user is admin, proceed to the next middleware/controller
-  next();
-}
+};
 
 module.exports = isAdmin;

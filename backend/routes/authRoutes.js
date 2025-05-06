@@ -406,6 +406,7 @@ router.post("/verify-otp", async (req, res) => {
         name: user.name,
         username: user.username,
         phone: user.phone,
+        role: user.role,
         email: user.email,
       },
     });
@@ -465,6 +466,7 @@ router.post("/login", async (req, res) => {
         name: user.name,
         username: user.username,
         phone: user.phone,
+        role: user.role,
         email: user.email,
       },
     });

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate} from "react-router-dom";
 import "./App.css";
 
 import MainLayout from "./components/layout/MainLayout";
@@ -9,6 +9,7 @@ import Login from "./pages/Auth/Login";
 import Signup from "./pages/Auth/Signup";
 import ResetPassword from "./pages/Auth/ResetPassword";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
+import AdminRoute from "./components/auth/AdminRoute";
 import Community from "./pages/Community";
 import StoryDetail from "./pages/StoryDetail";
 import HashtagPage from "./pages/HashtagPage";
@@ -16,6 +17,9 @@ import EditStoryModal from "./components/community/EditStoryModal";
 import MyStories from "./pages/MyStories";
 import MeditationSession from "./pages/MeditationSession";
 import Dashboard from "./pages/Dashboard";
+import UserManagement from "./pages/Admin/UserManagement";
+import UserDetails from "./pages/Admin/UserDetails";
+import { useAuth } from "./context/AuthContext";
 
 function App() {
   return (
@@ -45,9 +49,16 @@ function App() {
               path="/meditation/session/:id"
               element={<MeditationSession />}
             />
-            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />          
+          </Route>
+          {/* Admin routes */}
+          <Route element={<AdminRoute />}>
+            <Route path="/admin/users" element={<UserManagement />} />
+            <Route path="/admin/users/:id" element={<UserDetails />} />
           </Route>
         </Route>
+        {/* Catch-all route */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

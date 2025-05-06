@@ -4,6 +4,8 @@ import { Link } from "react-router-dom";
 import LogoutButton from "../auth/Logout";
 
 const Navbar = ({ user }) => {
+  // console.log('Navbar user:', user);
+  // console.log('Is admin check:', user?.role === "admin");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
@@ -99,9 +101,9 @@ const Navbar = ({ user }) => {
                     </Link>
 
                     {/* Admin-only option */}
-                    {user.isAdmin && (
+                    {user.role === "admin" && (
                       <Link
-                        to="/user-management"
+                        to="/admin/users"
                         className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                         onClick={() => setIsDropdownOpen(false)}
                       >
@@ -217,9 +219,9 @@ const Navbar = ({ user }) => {
               </Link>
 
               {/* Admin-only option for mobile */}
-              {user.isAdmin && (
+              {user.role === "admin" && (
                 <Link
-                  to="/user-management"
+                  to="/admin/users"
                   className="text-gray-700 hover:bg-gray-50 hover:text-indigo-600 block px-3 py-2 rounded-md text-base font-medium"
                   onClick={() => setIsMenuOpen(false)}
                 >
