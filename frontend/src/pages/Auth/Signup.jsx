@@ -116,7 +116,7 @@ const Signup = () => {
         localStorage.setItem("user", JSON.stringify(user));
 
         // Update auth context
-        login(user, accessToken);
+        login(user, { accessToken, refreshToken });
 
         // Redirect to dashboard
         navigate("/");
@@ -194,7 +194,7 @@ const Signup = () => {
       localStorage.setItem("user", JSON.stringify(user));
 
       // Update auth context
-      login(user, accessToken);
+      login(user, { accessToken, refreshToken });
 
       // Redirect to dashboard
       navigate("/dashboard");
