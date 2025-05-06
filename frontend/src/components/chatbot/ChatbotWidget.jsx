@@ -1,5 +1,5 @@
 // src/components/chatbot/ChatbotWidget.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 
@@ -20,41 +20,8 @@ const ChatbotWidget = () => {
   // Create a ref for the input element to maintain focus
   const inputRef = useRef(null);
 
-  // Check for active conversation on component mount instead of creating a new one
-  useEffect(() => {
-    checkChatbotStatus();
-    fetchConversations();
-  }, []);
-
-  // Check if user has an active conversation without creating one
-  const checkChatbotStatus = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const response = await axios.get("/api/chatbot/status", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (response.data.hasActiveConversation && response.data.activeConversation) {
-        setHasActiveConversation(true);
-        setConversationId(response.data.activeConversation.id);
-        
-        // Only load conversation messages if chat is opened
-        if (isOpen) {
-          loadConversation(response.data.activeConversation.id);
-        }
-      } else {
-        setHasActiveConversation(false);
-        setShowWelcome(true);
-      }
-    } catch (error) {
-      console.error("Error checking chatbot status:", error);
-    }
-  };
-
   // Fetch all conversations for history
-  const fetchConversations = async () => {
+  const fetchConversations = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
       const response = await axios.get("/api/chatbot/conversations", {
@@ -66,10 +33,10 @@ const ChatbotWidget = () => {
     } catch (error) {
       console.error("Error fetching conversations:", error);
     }
-  };
+  }, []);
 
-  // Load a specific conversation
-  const loadConversation = async (convId) => {
+  // Define loadConversation with useCallback to prevent dependency warnings
+  const loadConversation = useCallback(async (convId) => {
     try {
       setIsLoading(true);
       const token = localStorage.getItem("token");
@@ -112,10 +79,44 @@ const ChatbotWidget = () => {
         }
       }, 100);
     }
-  };
+  }, [showHistory]); // Add showHistory as a dependency
+
+  // Check if user has an active conversation without creating one
+  const checkChatbotStatus = useCallback(async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await axios.get("/api/chatbot/status", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (response.data.hasActiveConversation && response.data.activeConversation) {
+        setHasActiveConversation(true);
+        setConversationId(response.data.activeConversation.id);
+        
+        // Only load conversation messages if chat is opened
+        if (isOpen) {
+          loadConversation(response.data.activeConversation.id);
+        }
+      } else {
+        setHasActiveConversation(false);
+        setShowWelcome(true);
+      }
+    } catch (error) {
+      console.error("Error checking chatbot status:", error);
+    }
+  }, [isOpen, loadConversation]);
+
+  // Check for active conversation on component mount instead of creating a new one
+  // We need to use useEffect with empty deps for initialization, but then declare the functions ahead
+  useEffect(() => {
+    checkChatbotStatus();
+    fetchConversations();
+  }, [checkChatbotStatus, fetchConversations]);
 
   // Delete a conversation
-  const deleteConversation = async (convId, e) => {
+  const deleteConversation = useCallback(async (convId, e) => {
     e.stopPropagation(); // Prevent triggering the parent onClick
     try {
       const token = localStorage.getItem("token");
@@ -138,10 +139,10 @@ const ChatbotWidget = () => {
     } catch (error) {
       console.error("Error deleting conversation:", error);
     }
-  };
+  }, [conversationId, fetchConversations]);
 
   // Start a new conversation
-  const startNewConversation = async () => {
+  const startNewConversation = useCallback(async () => {
     try {
       setIsLoading(true);
       const token = localStorage.getItem("token");
@@ -178,7 +179,7 @@ const ChatbotWidget = () => {
         }
       }, 100);
     }
-  };
+  }, [fetchConversations, showHistory]);
 
   // Scroll to bottom of messages when new messages are added
   useEffect(() => {
@@ -220,7 +221,7 @@ const ChatbotWidget = () => {
         inputRef.current.focus();
       }, 300); // Short delay to allow animation to complete
     }
-  }, [isOpen, conversationId, messages.length, showHistory]);
+  }, [isOpen, conversationId, messages.length, showHistory, loadConversation]);
 
   // Refocus input after sending a message
   useEffect(() => {
@@ -229,11 +230,11 @@ const ChatbotWidget = () => {
     }
   }, [isLoading, showHistory, isOpen]);
 
-  const toggleChat = () => {
+  const toggleChat = useCallback(() => {
     setIsOpen(!isOpen);
-  };
+  }, [isOpen]);
 
-  const toggleHistory = () => {
+  const toggleHistory = useCallback(() => {
     setShowHistory(!showHistory);
     // Fetch latest conversations when opening history
     if (!showHistory) {
@@ -246,13 +247,13 @@ const ChatbotWidget = () => {
         }
       }, 100);
     }
-  };
+  }, [showHistory, fetchConversations]);
 
-  const handleInputChange = (e) => {
+  const handleInputChange = useCallback((e) => {
     setInput(e.target.value);
-  };
+  }, []);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = useCallback(async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
 
@@ -338,20 +339,20 @@ const ChatbotWidget = () => {
         }
       }, 100);
     }
-  };
+  }, [input, conversationId, hasActiveConversation, fetchConversations, startNewConversation]);
 
   // Format date for conversation history
-  const formatDate = (dateString) => {
+  const formatDate = useCallback((dateString) => {
     const date = new Date(dateString);
     return (
       date.toLocaleDateString() +
       " " +
       date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
     );
-  };
+  }, []);
 
   // Handle keyboard shortcuts
-  const handleKeyDown = (e) => {
+  const handleKeyDown = useCallback((e) => {
     // Focus chat input when user presses / key outside of input
     if (e.key === '/' && document.activeElement !== inputRef.current && isOpen && !showHistory) {
       e.preventDefault();
@@ -362,7 +363,7 @@ const ChatbotWidget = () => {
     if (e.key === 'Escape' && isOpen) {
       toggleChat();
     }
-  };
+  }, [isOpen, showHistory, toggleChat]);
 
   // Add global keyboard listener
   useEffect(() => {
@@ -370,10 +371,10 @@ const ChatbotWidget = () => {
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, showHistory]);
+  }, [handleKeyDown]);
 
   // Custom component to render markdown messages with proper styling
-  const MarkdownMessage = ({ content, type }) => {
+  const MarkdownMessage = useCallback(({ content, type }) => {
     // Define CSS classes based on message type
     const messageClasses = `p-3 rounded-2xl max-w-[85%] break-words leading-relaxed text-sm ${
       type === "user"
@@ -422,7 +423,7 @@ const ChatbotWidget = () => {
         </div>
       </div>
     );
-  };
+  }, []);
 
   const WelcomeScreen = () => (
     <div className="flex flex-col items-center justify-center h-full p-6 text-center bg-gray-50">
