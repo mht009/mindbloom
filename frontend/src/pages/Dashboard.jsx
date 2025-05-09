@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
-import { useAuth } from "../context/AuthContext";
 import MeditationCalendar from "../components/MeditationCalendar";
 
 // Chart components
@@ -20,7 +19,6 @@ import {
 } from "recharts";
 
 const Dashboard = () => {
-  const { user } = useAuth();
   const [dashboardData, setDashboardData] = useState(null);
   const [meditationHistory, setMeditationHistory] = useState([]);
   const [achievements, setAchievements] = useState([]);

@@ -26,6 +26,7 @@ const meditationRoutes = require("./routes/meditationRoutes");
 const meditationTypeRoutes = require("./routes/meditationTypeRoutes"); // Using ES routes
 const healthRoutes = require("./routes/healthRoutes");
 const chatbotRoutes = require("./routes/chatbotRoutesG");
+const leaderboardRoutes = require("./routes/leaderboardRoutes");
 
 const app = express();
 
@@ -55,6 +56,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/meditation", meditationRoutes);
 app.use("/api/meditation-types", meditationTypeRoutes); // Using ES routes
 app.use("/api/chatbot", chatbotLimiter, chatbotRoutes);
+app.use("/api/leaderboard", leaderboardRoutes);
 
 // 404 handler
 app.use((req, res) => {

@@ -50,6 +50,12 @@ const Navbar = ({ user }) => {
             >
               Community
             </Link>
+            <Link
+              to="/leaderboard"
+              className="text-gray-700 hover:text-indigo-600 px-3 py-2 rounded-md text-sm font-medium"
+            >
+              Leaderboard
+            </Link>
 
             {/* Conditional rendering based on user login status */}
             {!user ? (
@@ -190,6 +196,13 @@ const Navbar = ({ user }) => {
             onClick={() => setIsMenuOpen(false)}
           >
             Community
+          </Link>
+          <Link
+            to="/leaderboard"
+            className="text-gray-700 hover:bg-gray-50 hover:text-indigo-600 block px-3 py-2 rounded-md text-base font-medium"
+            onClick={() => setIsMenuOpen(false)}
+          >
+            Leaderboard
           </Link>
 
           {/* Conditional rendering for mobile menu */}

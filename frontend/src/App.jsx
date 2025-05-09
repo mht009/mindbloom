@@ -19,7 +19,7 @@ import MeditationSession from "./pages/MeditationSession";
 import Dashboard from "./pages/Dashboard";
 import UserManagement from "./pages/Admin/UserManagement";
 import UserDetails from "./pages/Admin/UserDetails";
-import { useAuth } from "./context/AuthContext";
+import Leaderboard from "./pages/Leaderboard";
 
 function App() {
   return (
@@ -49,7 +49,8 @@ function App() {
               path="/meditation/session/:id"
               element={<MeditationSession />}
             />
-            <Route path="/dashboard" element={<Dashboard />} />          
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/leaderboard" element={<Leaderboard />} />
           </Route>
           {/* Admin routes */}
           <Route element={<AdminRoute />}>
