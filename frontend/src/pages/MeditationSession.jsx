@@ -45,10 +45,18 @@ const MeditationSession = () => {
   const [showSuccess, setShowSuccess] = useState(false);
   const [sessionStats, setSessionStats] = useState(null);
 
-  // Music state
-  const [selectedMusic, setSelectedMusic] = useState("none");
+  // Music state with localStorage persistence
+  const [selectedMusic, setSelectedMusic] = useState(() => {
+    const storedMusic = localStorage.getItem(`meditation_session_${id}_music`);
+    return storedMusic || "none";
+  });
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
-  const [audioVolume, setAudioVolume] = useState(0.5);
+  const [audioVolume, setAudioVolume] = useState(() => {
+    const storedVolume = localStorage.getItem(
+      `meditation_session_${id}_volume`
+    );
+    return storedVolume ? parseFloat(storedVolume) : 0.5;
+  });
   const audioRef = useRef(null);
 
   // Timer refs for cleanup
@@ -108,14 +116,6 @@ const MeditationSession = () => {
       if (storedTotalPaused) {
         totalPausedTimeRef.current = parseInt(storedTotalPaused);
       }
-
-      // Restore music selection
-      const storedMusic = localStorage.getItem(
-        `meditation_session_${id}_music`
-      );
-      if (storedMusic) {
-        setSelectedMusic(storedMusic);
-      }
     }
   }, [id, sessionState]);
 
@@ -142,10 +142,14 @@ const MeditationSession = () => {
     );
   }, [id, remainingTime]);
 
-  // Store music selection in localStorage
+  // Store music selection and volume in localStorage
   useEffect(() => {
     localStorage.setItem(`meditation_session_${id}_music`, selectedMusic);
   }, [id, selectedMusic]);
+
+  useEffect(() => {
+    localStorage.setItem(`meditation_session_${id}_volume`, audioVolume);
+  }, [id, audioVolume]);
 
   // Fetch meditation type details
   useEffect(() => {
@@ -223,22 +227,45 @@ const MeditationSession = () => {
     };
   }, [id, sessionState, selectedDuration]);
 
-  // Handle music playback
+  // Handle music playback - restarts on page refresh
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = audioVolume;
 
       if (sessionState === "running" && selectedMusic !== "none") {
-        audioRef.current.play().catch((error) => {
-          console.error("Error playing audio:", error);
-        });
-        setIsMusicPlaying(true);
+        // Always restart the audio from the beginning
+        audioRef.current.currentTime = 0;
+
+        // Add a small delay to ensure the audio element is ready
+        const playTimeout = setTimeout(() => {
+          audioRef.current
+            .play()
+            .then(() => {
+              setIsMusicPlaying(true);
+            })
+            .catch((error) => {
+              console.error("Error playing audio:", error);
+              setIsMusicPlaying(false);
+            });
+        }, 100);
+
+        return () => clearTimeout(playTimeout);
       } else {
         audioRef.current.pause();
         setIsMusicPlaying(false);
       }
     }
   }, [sessionState, selectedMusic, audioVolume]);
+
+  // Special effect to handle page refresh while session is running
+  useEffect(() => {
+    // Check if we're loading a running session after page refresh
+    if (sessionState === "running" && selectedMusic !== "none") {
+      // Set music playing immediately (for UI feedback)
+      setIsMusicPlaying(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty dependency array - runs only on mount
 
   const startSession = () => {
     startTimeRef.current = new Date();
@@ -373,6 +400,7 @@ const MeditationSession = () => {
     localStorage.removeItem(`meditation_session_${id}_paused_time`);
     localStorage.removeItem(`meditation_session_${id}_total_paused`);
     localStorage.removeItem(`meditation_session_${id}_music`);
+    localStorage.removeItem(`meditation_session_${id}_volume`);
   };
 
   const formatTime = (totalSeconds) => {
@@ -589,6 +617,20 @@ const MeditationSession = () => {
               musicOptions.find((option) => option.id === selectedMusic)?.url
             }
             loop
+            preload="auto"
+            onLoadedData={() => {
+              // When audio is loaded, play it if session is running
+              if (sessionState === "running") {
+                audioRef.current
+                  .play()
+                  .then(() => {
+                    setIsMusicPlaying(true);
+                  })
+                  .catch((error) => {
+                    console.error("Error playing audio on load:", error);
+                  });
+              }
+            }}
           />
         )}
 
